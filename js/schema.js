@@ -1,11 +1,12 @@
 // Table & field definitions: database names (English) ↔ interface labels (Arabic).
 // Field types: text | longtext | number | url | fk | link | contacts | user | date
 
+// Record info (who entered/edited and when) — visible to owner & admin only
 const meta = [
-  { key: 'created_by', label: 'أُدخل بواسطة', type: 'user', readonly: true, hidden: true },
-  { key: 'created_at', label: 'تاريخ الإدخال', type: 'date', readonly: true, hidden: true },
-  { key: 'updated_by', label: 'آخر تعديل بواسطة', type: 'user', readonly: true, hidden: true },
-  { key: 'updated_at', label: 'تاريخ آخر تعديل', type: 'date', readonly: true, hidden: true },
+  { key: 'created_by', label: 'أُدخل بواسطة', type: 'user', readonly: true, hidden: true, staffOnly: true },
+  { key: 'created_at', label: 'تاريخ الإدخال', type: 'date', readonly: true, hidden: true, staffOnly: true },
+  { key: 'updated_by', label: 'آخر تعديل بواسطة', type: 'user', readonly: true, hidden: true, staffOnly: true },
+  { key: 'updated_at', label: 'تاريخ آخر تعديل', type: 'date', readonly: true, hidden: true, staffOnly: true },
 ];
 
 const refTable = (label, icon, extra = []) => ({
@@ -158,3 +159,6 @@ export const HIDDEN_TABLES = {
   data_entry: ['journals', 'countries', 'languages', 'research_types', 'contact_types', 'person_roles'],
 };
 export const isTableVisible = (role, table) => !(HIDDEN_TABLES[role] || []).includes(table);
+
+// Fields a role may see (record info is for owner & admin only)
+export const fieldsFor = (role, table) => TABLES[table].fields.filter((f) => !f.staffOnly || role === 'owner' || role === 'admin');

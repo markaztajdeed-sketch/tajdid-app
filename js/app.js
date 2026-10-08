@@ -1,6 +1,6 @@
 import * as api from './api.js';
 import {
-  TABLES, AUX_TABLES, ROLE_LABELS, FORM_LAYOUT, FULL_WIDTH, JOURNAL_COLORS, isTableVisible, canInsert, canEditRow, canEditField, canDelete,
+  TABLES, AUX_TABLES, ROLE_LABELS, FORM_LAYOUT, FULL_WIDTH, JOURNAL_COLORS, isTableVisible, fieldsFor, canInsert, canEditRow, canEditField, canDelete,
 } from './schema.js';
 import { renderStats } from './stats.js';
 import { icon } from './icons.js';
@@ -284,7 +284,7 @@ function uiFor(table) {
     const hiddenSaved = lsGet(`tajdid_hidden_${table}`, null);
     S.ui[table] = {
       search: '', sort: null, filters: [],
-      hidden: new Set(hiddenSaved ?? TABLES[table].fields.filter((f) => f.hidden).map((f) => f.key)),
+      hidden: new Set(hiddenSaved ?? fieldsFor(S.me.role, table).filter((f) => f.hidden).map((f) => f.key)),
     };
   }
   return S.ui[table];
@@ -292,7 +292,7 @@ function uiFor(table) {
 
 function visibleRows(table) {
   const ui = uiFor(table);
-  const fields = TABLES[table].fields;
+  const fields = fieldsFor(S.me.role, table);
   let rows = [...(S.data[table] || [])];
   const q = ui.search.trim().toLowerCase();
   if (q) rows = rows.filter((r) => fields.some((f) => String(plainValue(table, r, f)).toLowerCase().includes(q)));
@@ -337,7 +337,7 @@ function renderGrid(main, table) {
   const T = TABLES[table];
   const ui = uiFor(table);
   const role = S.me.role; const uid = S.me.id;
-  const fields = T.fields.filter((f) => !ui.hidden.has(f.key));
+  const fields = fieldsFor(role, table).filter((f) => !ui.hidden.has(f.key));
   const rows = visibleRows(table);
 
   // toolbar
@@ -469,13 +469,13 @@ function popover(anchor, content) {
 function fieldsButton(table, rerender) {
   const ui = uiFor(table);
   const n = ui.hidden.size;
-  const defaults = TABLES[table].fields.filter((f) => f.hidden).map((f) => f.key);
+  const defaults = fieldsFor(S.me.role, table).filter((f) => f.hidden).map((f) => f.key);
   const custom = n !== defaults.length || defaults.some((k) => !ui.hidden.has(k));
   return h('button', {
     class: `btn ${custom ? 'active' : ''}`,
     onclick: (e) => popover(e.currentTarget, h('div', { class: 'menu' },
       h('div', { class: 'menu-title' }, 'إظهار / إخفاء الحقول'),
-      TABLES[table].fields.map((f) => h('label', { class: 'check' },
+      fieldsFor(S.me.role, table).map((f) => h('label', { class: 'check' },
         h('input', {
           type: 'checkbox', checked: !ui.hidden.has(f.key),
           onchange: (ev) => {
@@ -497,7 +497,7 @@ function filterButton(table, rerender) {
 
 function filterRow(table, flt, i) {
   const ui = uiFor(table);
-  const fields = TABLES[table].fields.filter((f) => f.type !== 'date');
+  const fields = fieldsFor(S.me.role, table).filter((f) => f.type !== 'date');
   const f = fields.find((x) => x.key === flt.key) || fields[0];
   let valueEl;
   if (f.type === 'fk' || f.type === 'link') {
@@ -662,7 +662,7 @@ export function openRecord(table, row, focusKey) {
   const form = h('div', { class: 'record' });
   const fieldEls = {};
 
-  for (const f of T.fields) {
+  for (const f of fieldsFor(role, table)) {
     if (isNew && f.readonly) continue;
     const editable = isNew ? (!f.readonly && (!f.adminOnly || ['owner', 'admin'].includes(role)) && !(f.type === 'link' && f.ref === 'researches' && !['owner', 'admin'].includes(role)))
       : canEditField(role, uid, table, row, f);
@@ -704,8 +704,8 @@ export function openRecord(table, row, focusKey) {
     if (els.length) form.append(h('section', { class: `form-section ${cls}` }, title ? h('h4', {}, title) : null, h('div', { class: 'record-grid' }, els)));
   };
   if (layout) layout.forEach(([title, keys]) => section(title, keys));
-  const metaKeys = T.fields.filter((f) => f.type === 'user' || f.type === 'date').map((f) => f.key);
-  section(layout ? 'حقول أخرى' : '', T.fields.map((f) => f.key).filter((k) => !metaKeys.includes(k)));
+  const metaKeys = fieldsFor(role, table).filter((f) => f.type === 'user' || f.type === 'date').map((f) => f.key);
+  section(layout ? 'حقول أخرى' : '', fieldsFor(role, table).map((f) => f.key).filter((k) => !metaKeys.includes(k)));
   section('معلومات السجل', metaKeys, 'meta');
 
   const rowEditable = isNew ? canInsert(role, table) : canEditRow(role, uid, table, row);
