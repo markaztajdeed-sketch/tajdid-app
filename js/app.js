@@ -361,9 +361,13 @@ function renderGrid(main, table) {
     }));
     if (!list.length) tbody.append(h('tr', {}, h('td', { colspan: fields.length + 1, class: 'empty' }, 'لا توجد سجلات')));
     if (canInsert(role, table)) {
-      tbody.append(h('tr', { class: 'add-row' }, h('td', { colspan: fields.length + 1 },
-        h('button', { class: 'add-row-btn', onclick: () => openRecord(table, null) },
-          icon('plus', 16), `إضافة ${T.single || 'سجل'}`, h('kbd', { title: 'اختصار لوحة المفاتيح' }, 'N')))));
+      tbody.append(h('tr', {
+        class: 'add-row', tabindex: '0', role: 'button', title: `إضافة ${T.single || 'سجل'} (N)`,
+        onclick: () => openRecord(table, null),
+        onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openRecord(table, null); } },
+      },
+        h('td', { class: 'rownum' }, icon('plus', 16)),
+        h('td', { colspan: fields.length }, h('span', { class: 'add-row-label' }, `إضافة ${T.single || 'سجل'}`, h('kbd', {}, 'N')))));
     }
     count.textContent = `${list.length} من ${S.data[table].length} سجل`;
   }
