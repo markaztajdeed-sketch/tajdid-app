@@ -344,6 +344,28 @@ function canDelete(role, table) {
   return false;
 }
 
+// Sections for the record window (fields not listed go to the last section)
+const FORM_LAYOUT = {
+  researches: [
+    ['المعلومات الأساسية', ['title', 'year', 'research_type_id', 'language_id', 'pages']],
+    ['الأشخاص', ['researchers', 'translators']],
+    ['النشر والتصنيف', ['journals', 'publishers', 'topics', 'tags']],
+    ['المعرّفات والرابط', ['isbn', 'doi', 'url']],
+    ['المحتوى', ['summary', 'notes']],
+  ],
+  persons: [
+    ['البيانات', ['name', 'nationality_id', 'roles']],
+    ['الأعمال', ['as_researcher', 'as_translator']],
+    ['التواصل والملاحظات', ['contacts', 'notes']],
+  ],
+  publishers: [
+    ['البيانات', ['name', 'country_id', 'description']],
+    ['الأبحاث', ['researches']],
+    ['التواصل والملاحظات', ['contacts', 'notes']],
+  ],
+};
+const FULL_WIDTH = new Set(['title', 'name', 'summary', 'notes', 'description', 'contacts', 'as_researcher', 'as_translator', 'researches']);
+
 
 
 
@@ -395,6 +417,27 @@ function displayOf(table, id) {
   const row = S.byId[table]?.get(Number(id)) ?? S.byId[table]?.get(id);
   if (!row) return '—';
   return row[TABLES[table]?.display || 'name'] ?? `#${id}`;
+}
+// Short context shown next to a linked record (e.g. a person's nationality and roles)
+function subtitleOf(table, id) {
+  const r = S.byId[table]?.get(id);
+  if (!r) return '';
+  const parts = [];
+  if (table === 'persons') {
+    if (r.nationality_id) parts.push(displayOf('countries', r.nationality_id));
+    const roles = (S.data.person_role_assignments || []).filter((a) => a.person_id === id).map((a) => displayOf('person_roles', a.role_id));
+    if (roles.length) parts.push(roles.join('، '));
+  } else if (table === 'publishers') {
+    if (r.country_id) parts.push(displayOf('countries', r.country_id));
+  } else if (table === 'researches') {
+    if (r.year) parts.push(r.year);
+    const pub = (S.data.research_publishers || []).find((l) => l.research_id === id);
+    if (pub) parts.push(displayOf('publishers', pub.publisher_id));
+  } else if (table === 'journals') {
+    const n = (S.data.research_journals || []).filter((l) => l.journal_id === id).length;
+    if (n) parts.push(`${n} بحث`);
+  }
+  return parts.join(' · ');
 }
 function userName(id) {
   if (!id) return 'NocoDB / قبل الواجهة';
@@ -872,23 +915,23 @@ function linkPicker(field, selected, onChange, editable) {
   const chips = h('span', { class: 'chips' });
   const input = editable ? h('input', {
     type: 'text', class: 'link-input', dir: 'auto', autocomplete: 'off',
-    placeholder: selected.length ? 'أضف…' : `اكتب اسماً للبحث في ${refT.label}…`,
+    placeholder: selected.length ? 'أضف…' : 'ابحث أو أضف…',
   }) : null;
   let dd = null; let items = []; let active = 0;
 
   const drawChips = () => {
-    chips.replaceChildren(...selected.map((id) => h('span', { class: `chip ${field.ref}` }, displayOf(field.ref, id),
+    chips.replaceChildren(...selected.map((id) => h('span', { class: `chip ${field.ref}`, title: subtitleOf(field.ref, id) || null }, displayOf(field.ref, id),
       editable ? h('button', {
         class: 'x', title: 'إزالة', type: 'button',
         onclick: () => { selected.splice(selected.indexOf(id), 1); onChange(); drawChips(); input.focus(); },
       }, '×') : null)));
-    if (input) input.placeholder = selected.length ? 'أضف…' : `اكتب اسماً للبحث في ${refT.label}…`;
+    if (input) input.placeholder = selected.length ? 'أضف…' : 'ابحث أو أضف…';
   };
 
   const close = () => { dd?.remove(); dd = null; window.removeEventListener('scroll', place, true); };
   function place() {
     if (!dd) return;
-    const r = input.getBoundingClientRect();
+    const r = box.getBoundingClientRect();
     const below = innerHeight - r.bottom;
     dd.style.width = `${Math.max(260, r.width)}px`;
     dd.style.right = `${Math.max(8, innerWidth - r.right)}px`;
@@ -912,7 +955,7 @@ function linkPicker(field, selected, onChange, editable) {
     matches = matches.sort((a, b) => (norm(a[refT.display]).startsWith(q) ? 0 : 1) - (norm(b[refT.display]).startsWith(q) ? 0 : 1)).slice(0, 8);
     const exact = S.data[field.ref].some((o) => norm(o[refT.display]) === q);
     items = matches.map((o) => ({ kind: 'pick', id: o.id, label: o[refT.display] }));
-    if (raw && canCreate && !exact) items.push({ kind: 'create', label: raw });
+    if (raw.length >= 2 && canCreate && !exact) items.push({ kind: 'create', label: raw });
     if (active >= items.length) active = 0;
     if (!dd) {
       dd = h('div', { class: 'link-dd', role: 'listbox' });
@@ -926,7 +969,7 @@ function linkPicker(field, selected, onChange, editable) {
         onmousemove: () => { if (active !== i) { active = i; render(); } },
       }, it.kind === 'create'
         ? [icon('plus', 14), h('span', {}, 'إنشاء '), h('b', {}, `«${it.label}»`), h('small', {}, ` في ${refT.label}`)]
-        : it.label))
+        : [h('span', { class: 'opt-name' }, it.label), subtitleOf(field.ref, it.id) ? h('small', { class: 'opt-sub' }, subtitleOf(field.ref, it.id)) : null]))
         : [h('div', { class: 'opt empty' }, raw ? 'لا يوجد اسم مطابق' : 'لا توجد عناصر أخرى')]));
     place();
   };
@@ -976,6 +1019,7 @@ function openRecord(table, row, focusKey) {
   const links = {}; const contacts = {};
   let dirty = false;
   const form = h('div', { class: 'record' });
+  const fieldEls = {};
 
   for (const f of T.fields) {
     if (isNew && f.readonly) continue;
@@ -1009,9 +1053,19 @@ function openRecord(table, row, focusKey) {
         });
         if (f.type === 'url' && draft[f.key]) control = h('div', { class: 'with-link' }, control, h('a', { href: draft[f.key], target: '_blank', rel: 'noopener', class: 'btn sm' }, icon('link', 14), 'فتح'));
     }
-    form.append(h('div', { class: `field ${f.type === 'longtext' || f.type === 'link' || f.type === 'contacts' ? 'full' : ''}`, 'data-key': f.key },
-      h('label', {}, f.label, f.required ? h('span', { class: 'req' }, ' *') : null), control));
+    fieldEls[f.key] = h('div', { class: `field t-${f.type} ${FULL_WIDTH.has(f.key) || f.type === 'longtext' ? 'full' : ''}`, 'data-key': f.key },
+      h('label', {}, f.label, f.required ? h('span', { class: 'req' }, ' *') : null), control);
   }
+  const layout = FORM_LAYOUT[table];
+  const used = new Set();
+  const section = (title, keys, cls = '') => {
+    const els = keys.filter((k) => fieldEls[k] && !used.has(k)).map((k) => { used.add(k); return fieldEls[k]; });
+    if (els.length) form.append(h('section', { class: `form-section ${cls}` }, title ? h('h4', {}, title) : null, h('div', { class: 'record-grid' }, els)));
+  };
+  if (layout) layout.forEach(([title, keys]) => section(title, keys));
+  const metaKeys = T.fields.filter((f) => f.type === 'user' || f.type === 'date').map((f) => f.key);
+  section(layout ? 'حقول أخرى' : '', T.fields.map((f) => f.key).filter((k) => !metaKeys.includes(k)));
+  section('معلومات السجل', metaKeys, 'meta');
 
   const rowEditable = isNew ? canInsert(role, table) : canEditRow(role, uid, table, row);
   const anyLinkEditable = !isNew && T.fields.some((f) => f.type === 'link' && canEditField(role, uid, table, row, f));

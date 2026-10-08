@@ -318,3 +318,36 @@ table.shortcuts td:first-child { white-space: nowrap; width: 1%; padding-inline-
 .link-dd .opt.create { color: var(--accent-ink); border-top: 1px solid var(--border); margin-top: 2px; }
 .link-dd .opt.create small { color: var(--muted); }
 .link-dd .opt.empty { color: var(--muted); cursor: default; }
+
+/* record window: compact sections */
+.modal { max-width: 820px; }
+.modal-body { padding: 6px 20px 16px; }
+.record { display: block; }
+.form-section { padding: 12px 0 14px; border-bottom: 1px solid var(--border); }
+.form-section:last-child { border-bottom: 0; }
+.form-section h4 { margin: 0 0 10px; font: 700 12.5px 'Almarai', 'Tajawal', sans-serif; color: var(--accent-ink); display: flex; align-items: center; gap: 8px; }
+.form-section h4::before { content: ''; width: 3px; height: 13px; border-radius: 2px; background: var(--gold); }
+.record-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 14px; }
+.record-grid .field.full { grid-column: 1 / -1; }
+.form-section:first-child .record-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.form-section:first-child .record-grid .field.full { grid-column: 1 / -1; }
+.record label { font-size: 12px; margin-bottom: 3px; color: var(--text-2); }
+.record input, .record select { padding: 6px 10px; height: 36px; font-size: 14px; border-radius: 7px; }
+.record textarea { padding: 7px 10px; font-size: 14px; border-radius: 7px; }
+.record .link-box { min-height: 36px; padding: 3px 5px; gap: 4px; border-radius: 7px; }
+.record .link-input { height: 28px; min-width: 110px; font-size: 13.5px; }
+.record .link-input::placeholder { color: var(--muted); }
+.record .chip { padding: 2px 6px 2px 10px; font-size: 13px; }
+.form-section.meta .record-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.form-section.meta .ro-val { padding: 0; font-size: 13px; }
+.link-dd .opt { justify-content: space-between; }
+.link-dd .opt-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.link-dd .opt-sub { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.link-dd .opt.active .opt-sub { color: var(--accent-ink); opacity: .8; }
+.link-dd .opt.create { justify-content: flex-start; }
+@media (max-width: 820px) {
+  .record-grid, .form-section:first-child .record-grid, .form-section.meta .record-grid { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 520px) {
+  .record-grid, .form-section:first-child .record-grid { grid-template-columns: 1fr; }
+}

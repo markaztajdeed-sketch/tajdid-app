@@ -123,3 +123,25 @@ export function canDelete(role, table) {
   if (role === 'admin') return ADMIN_LISTS.includes(table) || table === 'topics' || table === 'tags';
   return false;
 }
+
+// Sections for the record window (fields not listed go to the last section)
+export const FORM_LAYOUT = {
+  researches: [
+    ['المعلومات الأساسية', ['title', 'year', 'research_type_id', 'language_id', 'pages']],
+    ['الأشخاص', ['researchers', 'translators']],
+    ['النشر والتصنيف', ['journals', 'publishers', 'topics', 'tags']],
+    ['المعرّفات والرابط', ['isbn', 'doi', 'url']],
+    ['المحتوى', ['summary', 'notes']],
+  ],
+  persons: [
+    ['البيانات', ['name', 'nationality_id', 'roles']],
+    ['الأعمال', ['as_researcher', 'as_translator']],
+    ['التواصل والملاحظات', ['contacts', 'notes']],
+  ],
+  publishers: [
+    ['البيانات', ['name', 'country_id', 'description']],
+    ['الأبحاث', ['researches']],
+    ['التواصل والملاحظات', ['contacts', 'notes']],
+  ],
+};
+export const FULL_WIDTH = new Set(['title', 'name', 'summary', 'notes', 'description', 'contacts', 'as_researcher', 'as_translator', 'researches']);
