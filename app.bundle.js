@@ -373,6 +373,12 @@ const JOURNAL_COLORS = {
   'سميراميس': 'maroon', // #7C0E2F (maroon cover)
 };
 
+// Tables hidden from the sidebar per role (still usable inside record forms and filters)
+const HIDDEN_TABLES = {
+  data_entry: ['journals', 'countries', 'languages', 'research_types', 'contact_types', 'person_roles'],
+};
+const isTableVisible = (role, table) => !(HIDDEN_TABLES[role] || []).includes(table);
+
 
 
 
@@ -529,7 +535,7 @@ async function boot() {
     await loadAll();
     S.me = S.byId.profiles.get(S.me.id);
     S.view = lsGet('tajdid_view', 'researches');
-    if (!TABLES[S.view] && !['stats', 'users'].includes(S.view)) S.view = 'researches';
+    if ((!TABLES[S.view] && !['stats', 'users'].includes(S.view)) || (TABLES[S.view] && !isTableVisible(S.me.role, S.view))) S.view = 'researches';
     renderShell();
   } catch (e) {
     toast(e.message, 'err');
@@ -622,7 +628,7 @@ function closeSidebar() { document.body.classList.remove('nav-open'); }
 function renderShell() {
   const role = S.me.role;
   const groups = { main: [], lists: [] };
-  for (const [k, t] of Object.entries(TABLES)) groups[t.group].push(navItem(k, t.icon, t.label, S.data[k]?.length));
+  for (const [k, t] of Object.entries(TABLES)) if (isTableVisible(role, k)) groups[t.group].push(navItem(k, t.icon, t.label, S.data[k]?.length));
   const pendingUsers = (S.data.profiles || []).filter((p) => !p.active).length;
 
   const sidebar = h('aside', { class: 'sidebar' },

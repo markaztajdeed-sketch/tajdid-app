@@ -1,6 +1,6 @@
 import * as api from './api.js';
 import {
-  TABLES, AUX_TABLES, ROLE_LABELS, FORM_LAYOUT, FULL_WIDTH, JOURNAL_COLORS, canInsert, canEditRow, canEditField, canDelete,
+  TABLES, AUX_TABLES, ROLE_LABELS, FORM_LAYOUT, FULL_WIDTH, JOURNAL_COLORS, isTableVisible, canInsert, canEditRow, canEditField, canDelete,
 } from './schema.js';
 import { renderStats } from './stats.js';
 import { icon } from './icons.js';
@@ -157,7 +157,7 @@ async function boot() {
     await loadAll();
     S.me = S.byId.profiles.get(S.me.id);
     S.view = lsGet('tajdid_view', 'researches');
-    if (!TABLES[S.view] && !['stats', 'users'].includes(S.view)) S.view = 'researches';
+    if ((!TABLES[S.view] && !['stats', 'users'].includes(S.view)) || (TABLES[S.view] && !isTableVisible(S.me.role, S.view))) S.view = 'researches';
     renderShell();
   } catch (e) {
     toast(e.message, 'err');
@@ -250,7 +250,7 @@ function closeSidebar() { document.body.classList.remove('nav-open'); }
 export function renderShell() {
   const role = S.me.role;
   const groups = { main: [], lists: [] };
-  for (const [k, t] of Object.entries(TABLES)) groups[t.group].push(navItem(k, t.icon, t.label, S.data[k]?.length));
+  for (const [k, t] of Object.entries(TABLES)) if (isTableVisible(role, k)) groups[t.group].push(navItem(k, t.icon, t.label, S.data[k]?.length));
   const pendingUsers = (S.data.profiles || []).filter((p) => !p.active).length;
 
   const sidebar = h('aside', { class: 'sidebar' },

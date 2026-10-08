@@ -152,3 +152,9 @@ export const JOURNAL_COLORS = {
   'أخلاق': 'blue', // #11359B (royal-blue cover)
   'سميراميس': 'maroon', // #7C0E2F (maroon cover)
 };
+
+// Tables hidden from the sidebar per role (still usable inside record forms and filters)
+export const HIDDEN_TABLES = {
+  data_entry: ['journals', 'countries', 'languages', 'research_types', 'contact_types', 'person_roles'],
+};
+export const isTableVisible = (role, table) => !(HIDDEN_TABLES[role] || []).includes(table);
