@@ -16,3 +16,13 @@ out = ['/* مركز تجديد — ملف مُجمَّع تلقائياً، لا
        'boot();', '})();']
 (SRC.parent / 'app.bundle.js').write_text('\n'.join(out))
 print('exported api:', exported)
+
+# cache-busting: version the asset URLs in index.html so browsers fetch new files after each push
+import hashlib
+root = SRC.parent
+ver = hashlib.md5((root / 'app.bundle.js').read_bytes() + (root / 'css' / 'style.css').read_bytes()).hexdigest()[:8]
+html = (root / 'index.html').read_text()
+html = re.sub(r'href="css/style\.css(\?v=\w+)?"', f'href="css/style.css?v={ver}"', html)
+html = re.sub(r'src="app\.bundle\.js(\?v=\w+)?"', f'src="app.bundle.js?v={ver}"', html)
+(root / 'index.html').write_text(html)
+print('version:', ver)
