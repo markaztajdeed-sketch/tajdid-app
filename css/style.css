@@ -20,12 +20,12 @@
   --sidebar: linear-gradient(180deg, #0e2a47 0%, #163d63 100%);
   --sidebar-ink: #e3ecf5;
   --sidebar-muted: #8fa9c4;
-  --chip-persons: #e5ebf3;
-  --chip-persons-ink: #1a4b7a;
-  --chip-journals: #f9f1d8;
-  --chip-journals-ink: #7a5f12;
-  --chip-publishers: #f1e9fb;
-  --chip-publishers-ink: #5b2a91;
+  --chip-persons: #edf0f3;
+  --chip-persons-ink: #334155;
+  --chip-journals: #f1efe9;
+  --chip-journals-ink: #5b5446;
+  --chip-publishers: #f4ede6;
+  --chip-publishers-ink: #7c4a21;
   --chip-researches: #e6f0fa;
   --chip-researches-ink: #154a78;
   --shadow: 0 10px 30px rgba(14, 42, 71, .14);
@@ -38,8 +38,8 @@
     --gold: #e0c05a; --gold-ink: #e8cd76;
     --danger: #f97066; --danger-soft: #3a1714; --warn: #e0b341; --ro: #0f1d33;
     --sidebar: linear-gradient(180deg, #081a2e 0%, #0e2a47 100%); --sidebar-ink: #e3ecf5; --sidebar-muted: #7f99b5;
-    --chip-persons: #1c3352; --chip-persons-ink: #b7cde6; --chip-journals: #3a3012; --chip-journals-ink: #ecd27e;
-    --chip-publishers: #2c1f45; --chip-publishers-ink: #d3b8f5; --chip-researches: #163556; --chip-researches-ink: #a9d2f5;
+    --chip-persons: #1e2c40; --chip-persons-ink: #c9d4e2; --chip-journals: #2c2a24; --chip-journals-ink: #d8d1bf;
+    --chip-publishers: #3a2a1c; --chip-publishers-ink: #e6c3a1; --chip-researches: #163556; --chip-researches-ink: #a9d2f5;
     --shadow: 0 10px 30px rgba(0, 0, 0, .5);
     color-scheme: dark;
 }
@@ -50,8 +50,8 @@
     --gold: #e0c05a; --gold-ink: #e8cd76;
     --danger: #f97066; --danger-soft: #3a1714; --warn: #e0b341; --ro: #0f1d33;
     --sidebar: linear-gradient(180deg, #081a2e 0%, #0e2a47 100%); --sidebar-ink: #e3ecf5; --sidebar-muted: #7f99b5;
-    --chip-persons: #1c3352; --chip-persons-ink: #b7cde6; --chip-journals: #3a3012; --chip-journals-ink: #ecd27e;
-    --chip-publishers: #2c1f45; --chip-publishers-ink: #d3b8f5; --chip-researches: #163556; --chip-researches-ink: #a9d2f5;
+    --chip-persons: #1e2c40; --chip-persons-ink: #c9d4e2; --chip-journals: #2c2a24; --chip-journals-ink: #d8d1bf;
+    --chip-publishers: #3a2a1c; --chip-publishers-ink: #e6c3a1; --chip-researches: #163556; --chip-researches-ink: #a9d2f5;
     --shadow: 0 10px 30px rgba(0, 0, 0, .5);
     color-scheme: dark;
   }
@@ -171,7 +171,7 @@ table.grid { border-collapse: separate; border-spacing: 0; table-layout: fixed; 
 
 /* chips */
 .chip { display: inline-flex; align-items: center; gap: 4px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 1px 9px; font-size: 12.5px; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
-.chip.persons { background: var(--chip-persons); color: var(--chip-persons-ink); border-color: transparent; }
+.chip.persons { background: var(--chip-persons); color: var(--chip-persons-ink); border-color: var(--border); }
 .chip.journals { background: var(--chip-journals); color: var(--chip-journals-ink); border-color: transparent; }
 .chip.publishers { background: var(--chip-publishers); color: var(--chip-publishers-ink); border-color: transparent; }
 .chip.researches { background: var(--chip-researches); color: var(--chip-researches-ink); border-color: transparent; white-space: normal; }
@@ -351,3 +351,20 @@ table.shortcuts td:first-child { white-space: nowrap; width: 1%; padding-inline-
 @media (max-width: 520px) {
   .record-grid, .form-section:first-child .record-grid { grid-template-columns: 1fr; }
 }
+
+/* journal colours (from each journal's cover on tajdid-c.com) */
+.chip.jc-olive { background: #f5f2d3; color: #6b650c; }
+.chip.jc-blue { background: #e3e9f8; color: #11359b; }
+.chip.jc-maroon { background: #f7e5ea; color: #7c0e2f; }
+.chip.jc-olive::before, .chip.jc-blue::before, .chip.jc-maroon::before { content: ''; width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.chip.jc-olive::before { background: #afa518; }
+.chip.jc-blue::before { background: #11359b; }
+.chip.jc-maroon::before { background: #7c0e2f; }
+.is-dark .chip.jc-olive { background: rgba(175, 165, 24, .2); color: #e6dc6a; }
+.is-dark .chip.jc-blue { background: rgba(80, 120, 230, .22); color: #a9bdf5; }
+.is-dark .chip.jc-maroon { background: rgba(200, 50, 95, .22); color: #f3a5ba; }
+.is-dark .chip.jc-olive::before { background: #d6cb3c; }
+.is-dark .chip.jc-blue::before { background: #6f8fe8; }
+.is-dark .chip.jc-maroon::before { background: #e06a8c; }
+.chip.dot-only { padding: 0; background: none !important; border: 0; margin-inline-end: 6px; vertical-align: middle; }
+.chip.dot-only:not([class*='jc-']) { display: none; }

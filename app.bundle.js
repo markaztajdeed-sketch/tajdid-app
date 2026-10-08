@@ -366,6 +366,13 @@ const FORM_LAYOUT = {
 };
 const FULL_WIDTH = new Set(['title', 'name', 'summary', 'notes', 'description', 'contacts', 'as_researcher', 'as_translator', 'researches']);
 
+// Journal chip colours, taken from each journal's cover and issue badge on tajdid-c.com
+const JOURNAL_COLORS = {
+  'قرآنيات': 'olive', // #AFA518 (gold/olive cover)
+  'أخلاق': 'blue', // #11359B (royal-blue cover)
+  'سميراميس': 'maroon', // #7C0E2F (maroon cover)
+};
+
 
 
 
@@ -438,6 +445,12 @@ function subtitleOf(table, id) {
     if (n) parts.push(`${n} بحث`);
   }
   return parts.join(' · ');
+}
+function chipClass(ref, id) {
+  if (ref !== 'journals') return `chip ${ref}`;
+  const name = norm(displayOf('journals', id));
+  const key = Object.keys(JOURNAL_COLORS).find((k) => norm(k) === name);
+  return `chip journals${key ? ` jc-${JOURNAL_COLORS[key]}` : ''}`;
 }
 function userName(id) {
   if (!id) return 'NocoDB / قبل الواجهة';
@@ -682,7 +695,7 @@ function renderCell(table, row, f) {
   const v = row[f.key];
   switch (f.type) {
     case 'fk': return v ? h('span', { class: 'chip' }, displayOf(f.ref, v)) : '';
-    case 'link': return linkedIds(f, row.id).map((id) => h('span', { class: `chip ${f.ref}` }, displayOf(f.ref, id)));
+    case 'link': return linkedIds(f, row.id).map((id) => h('span', { class: chipClass(f.ref, id) }, displayOf(f.ref, id)));
     case 'contacts': return contactsOf(f, row.id).map((c) => h('span', { class: 'chip soft', dir: 'auto' }, `${displayOf('contact_types', c.contact_type_id)}: ${c.value}`));
     case 'url': return v ? h('a', { href: v, target: '_blank', rel: 'noopener', dir: 'ltr', onclick: (e) => e.stopPropagation() }, v.replace(/^https?:\/\/(www\.)?/, '').slice(0, 40)) : '';
     case 'user': return f.key === 'updated_by' && !v ? '' : userName(v);
@@ -920,7 +933,7 @@ function linkPicker(field, selected, onChange, editable) {
   let dd = null; let items = []; let active = 0;
 
   const drawChips = () => {
-    chips.replaceChildren(...selected.map((id) => h('span', { class: `chip ${field.ref}`, title: subtitleOf(field.ref, id) || null }, displayOf(field.ref, id),
+    chips.replaceChildren(...selected.map((id) => h('span', { class: chipClass(field.ref, id), title: subtitleOf(field.ref, id) || null }, displayOf(field.ref, id),
       editable ? h('button', {
         class: 'x', title: 'إزالة', type: 'button',
         onclick: () => { selected.splice(selected.indexOf(id), 1); onChange(); drawChips(); input.focus(); },
@@ -969,7 +982,7 @@ function linkPicker(field, selected, onChange, editable) {
         onmousemove: () => { if (active !== i) { active = i; render(); } },
       }, it.kind === 'create'
         ? [icon('plus', 14), h('span', {}, 'إنشاء '), h('b', {}, `«${it.label}»`), h('small', {}, ` في ${refT.label}`)]
-        : [h('span', { class: 'opt-name' }, it.label), subtitleOf(field.ref, it.id) ? h('small', { class: 'opt-sub' }, subtitleOf(field.ref, it.id)) : null]))
+        : [h('span', { class: 'opt-name' }, field.ref === 'journals' ? h('span', { class: `${chipClass('journals', it.id)} dot-only` }) : null, it.label), subtitleOf(field.ref, it.id) ? h('small', { class: 'opt-sub' }, subtitleOf(field.ref, it.id)) : null]))
         : [h('div', { class: 'opt empty' }, raw ? 'لا يوجد اسم مطابق' : 'لا توجد عناصر أخرى')]));
     place();
   };

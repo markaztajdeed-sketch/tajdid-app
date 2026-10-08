@@ -145,3 +145,10 @@ export const FORM_LAYOUT = {
   ],
 };
 export const FULL_WIDTH = new Set(['title', 'name', 'summary', 'notes', 'description', 'contacts', 'as_researcher', 'as_translator', 'researches']);
+
+// Journal chip colours, taken from each journal's cover and issue badge on tajdid-c.com
+export const JOURNAL_COLORS = {
+  'قرآنيات': 'olive', // #AFA518 (gold/olive cover)
+  'أخلاق': 'blue', // #11359B (royal-blue cover)
+  'سميراميس': 'maroon', // #7C0E2F (maroon cover)
+};
