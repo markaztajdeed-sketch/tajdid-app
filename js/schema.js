@@ -45,6 +45,8 @@ export const TABLES = {
       { key: 'nationality_id', label: 'الجنسية', type: 'fk', ref: 'countries', width: 120 },
       { key: 'as_researcher', label: 'أبحاثه', type: 'link', via: 'research_researchers', self: 'person_id', other: 'research_id', ref: 'researches', width: 260 },
       { key: 'as_translator', label: 'ترجماته', type: 'link', via: 'research_translators', self: 'person_id', other: 'research_id', ref: 'researches', width: 260 },
+      { key: 'related_journals', label: 'المجلات المرتبطة', type: 'derived', ref: 'journals', readonly: true, width: 220,
+        sources: [{ via: 'research_researchers', self: 'person_id' }, { via: 'research_translators', self: 'person_id' }] },
       { key: 'contacts', label: 'وسائل التواصل', type: 'contacts', table: 'persons_contacts', self: 'person_id', width: 240 },
       { key: 'notes', label: 'ملاحظات', type: 'longtext', width: 220 },
       ...meta,
@@ -56,6 +58,8 @@ export const TABLES = {
       { key: 'name', label: 'الاسم', type: 'text', required: true, width: 240 },
       { key: 'country_id', label: 'الدولة', type: 'fk', ref: 'countries', width: 120 },
       { key: 'researches', label: 'الأبحاث', type: 'link', via: 'research_publishers', self: 'publisher_id', other: 'research_id', ref: 'researches', width: 280 },
+      { key: 'related_journals', label: 'المجلات المرتبطة', type: 'derived', ref: 'journals', readonly: true, width: 220,
+        sources: [{ via: 'research_publishers', self: 'publisher_id' }] },
       { key: 'description', label: 'تعريف', type: 'longtext', width: 260 },
       { key: 'contacts', label: 'وسائل التواصل', type: 'contacts', table: 'publishers_contacts', self: 'publisher_id', width: 240 },
       { key: 'notes', label: 'ملاحظات', type: 'longtext', width: 220 },
@@ -136,16 +140,16 @@ export const FORM_LAYOUT = {
   ],
   persons: [
     ['البيانات', ['name', 'nationality_id', 'roles']],
-    ['الأعمال', ['as_researcher', 'as_translator']],
+    ['الأعمال', ['related_journals', 'as_researcher', 'as_translator']],
     ['التواصل والملاحظات', ['contacts', 'notes']],
   ],
   publishers: [
     ['البيانات', ['name', 'country_id', 'description']],
-    ['الأبحاث', ['researches']],
+    ['الأبحاث', ['related_journals', 'researches']],
     ['التواصل والملاحظات', ['contacts', 'notes']],
   ],
 };
-export const FULL_WIDTH = new Set(['title', 'name', 'summary', 'notes', 'description', 'contacts', 'as_researcher', 'as_translator', 'researches']);
+export const FULL_WIDTH = new Set(['related_journals', 'title', 'name', 'summary', 'notes', 'description', 'contacts', 'as_researcher', 'as_translator', 'researches']);
 
 // Journal chip colours, taken from each journal's cover and issue badge on tajdid-c.com
 export const JOURNAL_COLORS = {

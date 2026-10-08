@@ -368,3 +368,7 @@ table.shortcuts td:first-child { white-space: nowrap; width: 1%; padding-inline-
 .is-dark .chip.jc-maroon::before { background: #e06a8c; }
 .chip.dot-only { padding: 0; background: none !important; border: 0; margin-inline-end: 6px; vertical-align: middle; }
 .chip.dot-only:not([class*='jc-']) { display: none; }
+
+/* derived journal chips */
+.chip .chip-count { font-size: 11px; font-weight: 700; opacity: .75; margin-inline-start: 2px; }
+.ro-chips { display: flex; flex-wrap: wrap; gap: 6px; min-height: 30px; align-items: center; }

@@ -265,6 +265,8 @@ const TABLES = {
       { key: 'nationality_id', label: 'الجنسية', type: 'fk', ref: 'countries', width: 120 },
       { key: 'as_researcher', label: 'أبحاثه', type: 'link', via: 'research_researchers', self: 'person_id', other: 'research_id', ref: 'researches', width: 260 },
       { key: 'as_translator', label: 'ترجماته', type: 'link', via: 'research_translators', self: 'person_id', other: 'research_id', ref: 'researches', width: 260 },
+      { key: 'related_journals', label: 'المجلات المرتبطة', type: 'derived', ref: 'journals', readonly: true, width: 220,
+        sources: [{ via: 'research_researchers', self: 'person_id' }, { via: 'research_translators', self: 'person_id' }] },
       { key: 'contacts', label: 'وسائل التواصل', type: 'contacts', table: 'persons_contacts', self: 'person_id', width: 240 },
       { key: 'notes', label: 'ملاحظات', type: 'longtext', width: 220 },
       ...meta,
@@ -276,6 +278,8 @@ const TABLES = {
       { key: 'name', label: 'الاسم', type: 'text', required: true, width: 240 },
       { key: 'country_id', label: 'الدولة', type: 'fk', ref: 'countries', width: 120 },
       { key: 'researches', label: 'الأبحاث', type: 'link', via: 'research_publishers', self: 'publisher_id', other: 'research_id', ref: 'researches', width: 280 },
+      { key: 'related_journals', label: 'المجلات المرتبطة', type: 'derived', ref: 'journals', readonly: true, width: 220,
+        sources: [{ via: 'research_publishers', self: 'publisher_id' }] },
       { key: 'description', label: 'تعريف', type: 'longtext', width: 260 },
       { key: 'contacts', label: 'وسائل التواصل', type: 'contacts', table: 'publishers_contacts', self: 'publisher_id', width: 240 },
       { key: 'notes', label: 'ملاحظات', type: 'longtext', width: 220 },
@@ -356,16 +360,16 @@ const FORM_LAYOUT = {
   ],
   persons: [
     ['البيانات', ['name', 'nationality_id', 'roles']],
-    ['الأعمال', ['as_researcher', 'as_translator']],
+    ['الأعمال', ['related_journals', 'as_researcher', 'as_translator']],
     ['التواصل والملاحظات', ['contacts', 'notes']],
   ],
   publishers: [
     ['البيانات', ['name', 'country_id', 'description']],
-    ['الأبحاث', ['researches']],
+    ['الأبحاث', ['related_journals', 'researches']],
     ['التواصل والملاحظات', ['contacts', 'notes']],
   ],
 };
-const FULL_WIDTH = new Set(['title', 'name', 'summary', 'notes', 'description', 'contacts', 'as_researcher', 'as_translator', 'researches']);
+const FULL_WIDTH = new Set(['related_journals', 'title', 'name', 'summary', 'notes', 'description', 'contacts', 'as_researcher', 'as_translator', 'researches']);
 
 // Journal chip colours, taken from each journal's cover and issue badge on tajdid-c.com
 const JOURNAL_COLORS = {
@@ -480,11 +484,22 @@ function contactsOf(field, rowId) {
   return (S.data[field.table] || []).filter((c) => c[field.self] === rowId);
 }
 
+// Journals a person/publisher is related to through their researches → Map(journalId → number of researches)
+function derivedCounts(f, rowId) {
+  const rids = new Set();
+  for (const src of f.sources) for (const l of S.data[src.via] || []) if (l[src.self] === rowId) rids.add(l.research_id);
+  const m = new Map();
+  for (const l of S.data.research_journals || []) if (rids.has(l.research_id)) m.set(l.journal_id, (m.get(l.journal_id) || 0) + 1);
+  return new Map([...m].sort((a, b) => b[1] - a[1]));
+}
+const derivedIds = (f, rowId) => [...derivedCounts(f, rowId).keys()];
+
 // value used for search / sort / filter
 function plainValue(table, row, f) {
   switch (f.type) {
     case 'fk': return row[f.key] ? displayOf(f.ref, row[f.key]) : '';
     case 'link': return linkedIds(f, row.id).map((id) => displayOf(f.ref, id)).join('، ');
+    case 'derived': return derivedIds(f, row.id).map((id) => displayOf(f.ref, id)).join('، ');
     case 'contacts': return contactsOf(f, row.id).map((c) => c.value).join(' ');
     case 'user': return f.key === 'created_by' && !row[f.key] ? '' : userName(row[f.key]);
     default: return row[f.key] ?? '';
@@ -682,6 +697,7 @@ function visibleRows(table) {
     const f = fields.find((x) => x.key === flt.key);
     if (!f || flt.value === '' || flt.value == null) continue;
     if (f.type === 'fk') rows = rows.filter((r) => String(r[f.key] ?? '') === String(flt.value));
+    else if (f.type === 'derived') rows = rows.filter((r) => flt.value === '__none' ? !derivedIds(f, r.id).length : derivedIds(f, r.id).map(String).includes(String(flt.value)));
     else if (f.type === 'link') rows = rows.filter((r) => flt.value === '__none' ? !linkedIds(f, r.id).length : linkedIds(f, r.id).map(String).includes(String(flt.value)));
     else if (f.type === 'user') rows = rows.filter((r) => String(r[f.key] ?? '') === String(flt.value === '__none' ? '' : flt.value));
     else if (flt.value === '__empty') rows = rows.filter((r) => !String(plainValue(table, r, f)).trim());
@@ -706,6 +722,7 @@ function renderCell(table, row, f) {
   switch (f.type) {
     case 'fk': return v ? h('span', { class: 'chip' }, displayOf(f.ref, v)) : '';
     case 'link': return linkedIds(f, row.id).map((id) => h('span', { class: chipClass(f.ref, id) }, displayOf(f.ref, id)));
+    case 'derived': return [...derivedCounts(f, row.id)].map(([id, n]) => h('span', { class: chipClass(f.ref, id), title: `${n} بحث` }, displayOf(f.ref, id), h('small', { class: 'chip-count' }, n)));
     case 'contacts': return contactsOf(f, row.id).map((c) => h('span', { class: 'chip soft', dir: 'auto' }, `${displayOf('contact_types', c.contact_type_id)}: ${c.value}`));
     case 'url': return v ? h('a', { href: v, target: '_blank', rel: 'noopener', dir: 'ltr', onclick: (e) => e.stopPropagation() }, v.replace(/^https?:\/\/(www\.)?/, '').slice(0, 40)) : '';
     case 'user': return f.key === 'updated_by' && !v ? '' : userName(v);
@@ -882,10 +899,10 @@ function filterRow(table, flt, i) {
   const fields = fieldsFor(S.me.role, table).filter((f) => f.type !== 'date');
   const f = fields.find((x) => x.key === flt.key) || fields[0];
   let valueEl;
-  if (f.type === 'fk' || f.type === 'link') {
+  if (f.type === 'fk' || f.type === 'link' || f.type === 'derived') {
     valueEl = h('select', { onchange: (e) => { flt.value = e.target.value; renderShell(); } },
       h('option', { value: '' }, 'اختر…'),
-      f.type === 'link' ? h('option', { value: '__none', selected: flt.value === '__none' }, '(فارغ)') : null,
+      f.type !== 'fk' ? h('option', { value: '__none', selected: flt.value === '__none' }, '(فارغ)') : null,
       S.data[f.ref].map((o) => h('option', { value: o.id, selected: String(o.id) === String(flt.value) }, o[TABLES[f.ref].display])));
   } else if (f.type === 'user') {
     valueEl = h('select', { onchange: (e) => { flt.value = e.target.value; renderShell(); } },
@@ -1066,6 +1083,11 @@ function openRecord(table, row, focusKey) {
       case 'longtext':
         control = h('textarea', { rows: f.key === 'summary' ? 6 : 3, disabled: !editable, dir: 'auto', oninput: (e) => { draft[f.key] = e.target.value; } }, draft[f.key] ?? '');
         break;
+      case 'derived': {
+        const cell = isNew ? [] : renderCell(table, row, f);
+        control = h('div', { class: 'ro-chips' }, cell.length ? cell : h('span', { class: 'muted' }, 'تظهر تلقائياً حسب أبحاثه'));
+        break;
+      }
       case 'user': control = h('div', { class: 'ro-val' }, renderCell(table, draft, f) || '—'); break;
       case 'date': control = h('div', { class: 'ro-val' }, fmtDate(draft[f.key]) || '—'); break;
       default:
