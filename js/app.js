@@ -498,58 +498,114 @@ function filterRow(table, flt, i) {
 }
 
 // ============ record modal ============
-export function openModal(title, body, footer) {
-  const close = () => { wrap.remove(); document.removeEventListener('keydown', esc); };
+export function openModal(title, body, footer, opts = {}) {
+  const close = (force = false) => {
+    if (force !== true && opts.beforeClose && !opts.beforeClose()) return;
+    wrap.remove(); document.removeEventListener('keydown', esc);
+  };
   const esc = (e) => { if (e.key === 'Escape' && !document.querySelector('.popover')) close(); };
   document.addEventListener('keydown', esc);
   const wrap = h('div', { class: 'modal-wrap', onmousedown: (e) => { if (e.target === wrap) close(); } },
     h('div', { class: 'modal' },
-      h('div', { class: 'modal-head' }, h('h2', {}, title), h('button', { class: 'btn ghost sm icon-btn', 'aria-label': 'إغلاق', onclick: close }, icon('x', 18))),
+      h('div', { class: 'modal-head' }, h('h2', {}, title), h('button', { class: 'btn ghost sm icon-btn', 'aria-label': 'إغلاق', onclick: () => close() }, icon('x', 18))),
       h('div', { class: 'modal-body' }, body),
       footer ? h('div', { class: 'modal-foot' }, footer) : null));
   document.body.append(wrap);
   return close;
 }
 
+// Arabic-aware normalisation for matching names (ignores tashkeel, hamza forms, ة/ه, ى/ي)
+function norm(v) {
+  return String(v ?? '').toLowerCase()
+    .replace(/[ً-ٰٟـ]/g, '')
+    .replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/ؤ/g, 'و').replace(/ئ/g, 'ي')
+    .replace(/\s+/g, ' ').trim();
+}
+
 function linkPicker(field, selected, onChange, editable) {
-  const box = h('div', { class: 'link-box' });
+  const box = h('div', { class: `link-box ${editable ? 'editable' : ''}` });
   const refT = TABLES[field.ref];
-  const draw = () => {
-    box.replaceChildren(
-      ...selected.map((id) => h('span', { class: `chip ${field.ref}` }, displayOf(field.ref, id),
-        editable ? h('button', { class: 'x', title: 'إزالة', onclick: () => { selected.splice(selected.indexOf(id), 1); onChange(); draw(); } }, '×') : null)),
-      editable ? h('button', { class: 'btn sm add', onclick: (e) => open(e.currentTarget) }, icon('plus', 14), 'إضافة') : (!selected.length ? h('span', { class: 'muted' }, '—') : null));
+  const canCreate = field.ref !== 'researches' && canInsert(S.me.role, field.ref);
+  const chips = h('span', { class: 'chips' });
+  const input = editable ? h('input', {
+    type: 'text', class: 'link-input', dir: 'auto', autocomplete: 'off',
+    placeholder: selected.length ? 'أضف…' : `اكتب اسماً للبحث في ${refT.label}…`,
+  }) : null;
+  let dd = null; let items = []; let active = 0;
+
+  const drawChips = () => {
+    chips.replaceChildren(...selected.map((id) => h('span', { class: `chip ${field.ref}` }, displayOf(field.ref, id),
+      editable ? h('button', {
+        class: 'x', title: 'إزالة', type: 'button',
+        onclick: () => { selected.splice(selected.indexOf(id), 1); onChange(); drawChips(); input.focus(); },
+      }, '×') : null)));
+    if (input) input.placeholder = selected.length ? 'أضف…' : `اكتب اسماً للبحث في ${refT.label}…`;
   };
-  const open = (anchor) => {
-    const input = h('input', { type: 'search', placeholder: `ابحث في ${refT.label}…` });
-    const list = h('div', { class: 'pick-list' });
-    const drawList = () => {
-      const q = input.value.trim().toLowerCase();
-      const opts = S.data[field.ref].filter((o) => !selected.includes(o.id)
-        && String(o[refT.display]).toLowerCase().includes(q)).slice(0, 50);
-      list.replaceChildren(...opts.map((o) => h('button', {
-        class: 'pick', onclick: () => { selected.push(o.id); onChange(); draw(); pop.remove(); },
-      }, o[refT.display])));
-      if (q && field.ref !== 'researches' && canInsert(S.me.role, field.ref)
-        && !S.data[field.ref].some((o) => String(o[refT.display]).trim() === input.value.trim())) {
-        list.append(h('button', {
-          class: 'pick create',
-          onclick: async () => {
-            const row = await guard(() => api.insertRow(field.ref, { [refT.display]: input.value.trim() }));
-            S.data[field.ref].push(row); index(field.ref);
-            selected.push(row.id); onChange(); draw(); pop.remove();
-            toast(`أُضيف «${row[refT.display]}» إلى ${refT.label}`);
-          },
-        }, icon('plus', 14), `إنشاء «${input.value.trim()}»`));
-      }
-      if (!list.children.length) list.append(h('div', { class: 'muted pad' }, 'لا نتائج'));
-    };
-    input.addEventListener('input', drawList);
-    const pop = popover(anchor, h('div', { class: 'menu picker' }, input, list));
-    drawList();
-    input.focus();
+
+  const close = () => { dd?.remove(); dd = null; window.removeEventListener('scroll', place, true); };
+  function place() {
+    if (!dd) return;
+    const r = input.getBoundingClientRect();
+    const below = innerHeight - r.bottom;
+    dd.style.width = `${Math.max(260, r.width)}px`;
+    dd.style.right = `${Math.max(8, innerWidth - r.right)}px`;
+    if (below < 240 && r.top > below) { dd.style.top = ''; dd.style.bottom = `${innerHeight - r.top + 4}px`; }
+    else { dd.style.bottom = ''; dd.style.top = `${r.bottom + 4}px`; }
+  }
+  const add = (id) => { if (!selected.includes(id)) selected.push(id); onChange(); drawChips(); input.value = ''; close(); input.focus(); };
+  const create = async (name) => {
+    try {
+      const row = await api.insertRow(field.ref, { [refT.display]: name });
+      S.data[field.ref].push(row); index(field.ref);
+      toast(`أُضيف «${row[refT.display]}» إلى ${refT.label}`);
+      add(row.id);
+    } catch (e) { toast(e.message, 'err'); }
   };
-  draw();
+
+  const render = () => {
+    const raw = input.value.trim(); const q = norm(raw);
+    const pool = S.data[field.ref].filter((o) => !selected.includes(o.id));
+    let matches = q ? pool.filter((o) => norm(o[refT.display]).includes(q)) : pool;
+    matches = matches.sort((a, b) => (norm(a[refT.display]).startsWith(q) ? 0 : 1) - (norm(b[refT.display]).startsWith(q) ? 0 : 1)).slice(0, 8);
+    const exact = S.data[field.ref].some((o) => norm(o[refT.display]) === q);
+    items = matches.map((o) => ({ kind: 'pick', id: o.id, label: o[refT.display] }));
+    if (raw && canCreate && !exact) items.push({ kind: 'create', label: raw });
+    if (active >= items.length) active = 0;
+    if (!dd) {
+      dd = h('div', { class: 'link-dd', role: 'listbox' });
+      document.body.append(dd);
+      window.addEventListener('scroll', place, true);
+    }
+    dd.replaceChildren(
+      ...(items.length ? items.map((it, i) => h('div', {
+        class: `opt ${it.kind} ${i === active ? 'active' : ''}`, role: 'option',
+        onmousedown: (e) => { e.preventDefault(); if (it.kind === 'pick') add(it.id); else create(it.label); },
+        onmousemove: () => { if (active !== i) { active = i; render(); } },
+      }, it.kind === 'create'
+        ? [icon('plus', 14), h('span', {}, 'إنشاء '), h('b', {}, `«${it.label}»`), h('small', {}, ` في ${refT.label}`)]
+        : it.label))
+        : [h('div', { class: 'opt empty' }, raw ? 'لا يوجد اسم مطابق' : 'لا توجد عناصر أخرى')]));
+    place();
+  };
+
+  if (input) {
+    input.addEventListener('focus', () => { active = 0; render(); });
+    input.addEventListener('input', () => { active = 0; render(); });
+    input.addEventListener('blur', () => setTimeout(close, 120));
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown' && items.length) { e.preventDefault(); active = (active + 1) % items.length; render(); }
+      else if (e.key === 'ArrowUp' && items.length) { e.preventDefault(); active = (active - 1 + items.length) % items.length; render(); }
+      else if (e.key === 'Enter' && !(e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        const it = items[active];
+        if (it && input.value.trim()) { if (it.kind === 'pick') add(it.id); else create(it.label); }
+      } else if (e.key === 'Escape' && dd) { e.stopPropagation(); close(); }
+      else if (e.key === 'Backspace' && !input.value && selected.length) { selected.pop(); onChange(); drawChips(); render(); }
+    });
+    box.addEventListener('mousedown', (e) => { if (e.target === box || e.target === chips) { e.preventDefault(); input.focus(); } });
+  }
+  drawChips();
+  box.append(chips, input || (!selected.length ? h('span', { class: 'muted' }, '—') : ''));
   return box;
 }
 
@@ -575,6 +631,7 @@ export function openRecord(table, row, focusKey) {
   const isNew = !row;
   const draft = { ...(row || {}) };
   const links = {}; const contacts = {};
+  let dirty = false;
   const form = h('div', { class: 'record' });
 
   for (const f of T.fields) {
@@ -585,7 +642,7 @@ export function openRecord(table, row, focusKey) {
     switch (f.type) {
       case 'link':
         links[f.key] = isNew ? [] : linkedIds(f, row.id);
-        control = linkPicker(f, links[f.key], () => {}, editable);
+        control = linkPicker(f, links[f.key], () => { dirty = true; }, editable);
         break;
       case 'contacts':
         contacts[f.key] = isNew ? [] : contactsOf(f, row.id).map((c) => ({ ...c }));
@@ -620,8 +677,13 @@ export function openRecord(table, row, focusKey) {
     (rowEditable || anyLinkEditable) ? saveBtn : h('span', { class: 'muted' }, 'للعرض فقط'),
     !isNew && canDelete(role, table) ? h('button', { class: 'btn danger', onclick: () => remove() }, icon('trash', 16), 'حذف') : null,
   ];
-  const close = openModal(isNew ? `${T.single || 'سجل'} جديد` : (row[T.display] || `#${row.id}`), form, footer);
-  const focusEl = focusKey ? form.querySelector(`[data-key="${focusKey}"] input, [data-key="${focusKey}"] textarea, [data-key="${focusKey}"] .add`) : form.querySelector('input:not([disabled]),textarea:not([disabled])');
+  form.addEventListener('input', () => { dirty = true; });
+  form.addEventListener('change', () => { dirty = true; });
+  const close = openModal(isNew ? `${T.single || 'سجل'} جديد` : (row[T.display] || `#${row.id}`), form, footer, {
+    // eslint-disable-next-line no-alert
+    beforeClose: () => !dirty || window.confirm('لديك تعديلات غير محفوظة. هل تريد الإغلاق بدون حفظ؟'),
+  });
+  const focusEl = focusKey ? form.querySelector(`[data-key="${focusKey}"] input, [data-key="${focusKey}"] textarea, [data-key="${focusKey}"] .link-input, [data-key="${focusKey}"] .add`) : form.querySelector('input:not([disabled]),textarea:not([disabled])');
   focusEl?.focus();
   form.closest('.modal')?.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && (e.key === 'Enter' || e.code === 'KeyS')) {
@@ -683,7 +745,7 @@ export function openRecord(table, row, focusKey) {
       }
       // role assignments are maintained by triggers
       if (['researches', 'persons'].includes(table)) await loadTable('person_role_assignments');
-      close();
+      close(true);
       toast(isNew ? 'تمت الإضافة' : 'تم الحفظ');
       renderShell();
     } catch (e) {
@@ -697,7 +759,7 @@ export function openRecord(table, row, focusKey) {
     try {
       await api.deleteRows(table, { id: row.id });
       await loadAll();
-      close();
+      close(true);
       toast('تم الحذف');
       renderShell();
     } catch (e) { toast(e.message, 'err'); }

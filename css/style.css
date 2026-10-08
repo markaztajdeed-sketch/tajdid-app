@@ -306,3 +306,15 @@ kbd { display: inline-block; min-width: 20px; padding: 0 6px; border: 1px solid 
 table.shortcuts { width: 100%; border-collapse: collapse; }
 table.shortcuts td { padding: 8px 6px; border-bottom: 1px solid var(--border); }
 table.shortcuts td:first-child { white-space: nowrap; width: 1%; padding-inline-end: 18px; }
+
+/* inline link picker */
+.link-box.editable { cursor: text; border-style: solid; background: var(--surface); }
+.link-box.editable:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.link-box .chips { display: contents; }
+.link-input { flex: 1; min-width: 160px; border: 0 !important; box-shadow: none !important; padding: 4px 6px !important; background: transparent !important; }
+.link-dd { position: fixed; z-index: 70; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); padding: 4px; max-height: 280px; overflow-y: auto; }
+.link-dd .opt { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-radius: 6px; cursor: pointer; }
+.link-dd .opt.active { background: var(--accent-soft); color: var(--accent-ink); }
+.link-dd .opt.create { color: var(--accent-ink); border-top: 1px solid var(--border); margin-top: 2px; }
+.link-dd .opt.create small { color: var(--muted); }
+.link-dd .opt.empty { color: var(--muted); cursor: default; }
