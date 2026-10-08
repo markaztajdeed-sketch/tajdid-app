@@ -290,3 +290,14 @@ table.grid { border-collapse: separate; border-spacing: 0; table-layout: fixed; 
 .theme-switch button { display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
 .nav-toggle { line-height: 0; }
 .pick.create { display: flex; align-items: center; gap: 6px; }
+
+/* add row + shortcuts */
+.grid tr.add-row td { border-bottom: 0; padding: 0; }
+.grid tr.add-row:hover td { background: transparent; }
+.add-row-btn { position: sticky; right: 0; display: inline-flex; align-items: center; gap: 8px; margin: 6px 8px; padding: 8px 14px; border: 1px dashed var(--border-strong); border-radius: 8px; background: transparent; color: var(--accent-ink); cursor: pointer; font-weight: 500; }
+.add-row-btn:hover { background: var(--accent-soft); border-color: var(--accent); }
+kbd { display: inline-block; min-width: 20px; padding: 0 6px; border: 1px solid var(--border-strong); border-bottom-width: 2px; border-radius: 5px; background: var(--surface-2); color: var(--text-2); font: 600 11.5px/18px ui-monospace, Consolas, monospace; text-align: center; direction: ltr; }
+.add-row-btn kbd { margin-inline-start: 4px; }
+table.shortcuts { width: 100%; border-collapse: collapse; }
+table.shortcuts td { padding: 8px 6px; border-bottom: 1px solid var(--border); }
+table.shortcuts td:first-child { white-space: nowrap; width: 1%; padding-inline-end: 18px; }

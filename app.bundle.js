@@ -204,6 +204,7 @@ const PATHS = {
   menu: '<path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/>',
   link: '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
   trash: '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
+  keyboard: '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 13h.01M10 13h.01M14 13h.01M18 13h.01M8 16h8"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
   moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/>',
   monitor: '<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>',
@@ -666,6 +667,7 @@ function renderGrid(main, table) {
     searchBox,
     filterButton(table, () => renderShell()),
     fieldsButton(table, () => renderShell()),
+    h('button', { class: 'btn icon-btn', title: 'اختصارات لوحة المفاتيح (?)', 'aria-label': 'اختصارات لوحة المفاتيح', onclick: showShortcuts }, icon('keyboard', 18)),
     canInsert(role, table) ? h('button', { class: 'btn primary', onclick: () => openRecord(table, null) }, icon('plus', 16), `${T.single || 'سجل'} جديد`) : null);
 
   const filtersBar = ui.filters.length ? h('div', { class: 'filters-bar' }, ui.filters.map((flt, i) => filterRow(table, flt, i))) : null;
@@ -701,6 +703,11 @@ function renderGrid(main, table) {
         }, h('div', { class: 'cell' }, renderCell(table, row, f)))));
     }));
     if (!list.length) tbody.append(h('tr', {}, h('td', { colspan: fields.length + 1, class: 'empty' }, 'لا توجد سجلات')));
+    if (canInsert(role, table)) {
+      tbody.append(h('tr', { class: 'add-row' }, h('td', { colspan: fields.length + 1 },
+        h('button', { class: 'add-row-btn', onclick: () => openRecord(table, null) },
+          icon('plus', 16), `إضافة ${T.single || 'سجل'}`, h('kbd', { title: 'اختصار لوحة المفاتيح' }, 'N')))));
+    }
     count.textContent = `${list.length} من ${S.data[table].length} سجل`;
   }
   drawBody();
@@ -955,6 +962,12 @@ function openRecord(table, row, focusKey) {
   const close = openModal(isNew ? `${T.single || 'سجل'} جديد` : (row[T.display] || `#${row.id}`), form, footer);
   const focusEl = focusKey ? form.querySelector(`[data-key="${focusKey}"] input, [data-key="${focusKey}"] textarea, [data-key="${focusKey}"] .add`) : form.querySelector('input:not([disabled]),textarea:not([disabled])');
   focusEl?.focus();
+  form.closest('.modal')?.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'Enter' || e.code === 'KeyS')) {
+      e.preventDefault();
+      if (!saveBtn.disabled && saveBtn.isConnected) save();
+    }
+  });
 
   async function save() {
     saveBtn.disabled = true;
@@ -1033,6 +1046,34 @@ function openRecord(table, row, focusKey) {
     return window.confirm(`هل أنت متأكد من حذف «${row[T.display]}»؟ لا يمكن التراجع عن الحذف.`);
   }
 }
+
+// ============ keyboard shortcuts ============
+const SHORTCUTS = [
+  ['N', 'إضافة سجل جديد في الجدول المفتوح'],
+  ['/', 'الانتقال إلى خانة البحث'],
+  ['Ctrl + Enter', 'حفظ السجل المفتوح'],
+  ['Ctrl + S', 'حفظ السجل المفتوح'],
+  ['Esc', 'إغلاق النافذة أو إلغاء التعديل'],
+  ['دبل كليك', 'تعديل الخلية مباشرة في الجدول'],
+  ['Enter', 'حفظ تعديل الخلية'],
+  ['?', 'عرض هذه القائمة'],
+];
+function showShortcuts() {
+  if (document.querySelector('.modal-wrap')) return;
+  openModal('اختصارات لوحة المفاتيح', h('table', { class: 'shortcuts' },
+    SHORTCUTS.map(([k, d]) => h('tr', {}, h('td', {}, k.split(' + ').map((x, i) => [i ? ' + ' : '', h('kbd', {}, x)])), h('td', {}, d)))),
+    h('span', { class: 'muted' }, 'الاختصارات تعمل بالكيبورد العربي والإنكليزي.'));
+}
+document.addEventListener('keydown', (e) => {
+  if (!S.me || e.ctrlKey || e.metaKey || e.altKey) return;
+  const t = e.target;
+  if (t.closest && t.closest('input, textarea, select, [contenteditable]')) return;
+  if (document.querySelector('.modal-wrap, .popover')) return;
+  const isTable = !!TABLES[S.view];
+  if (e.code === 'KeyN' && isTable && canInsert(S.me.role, S.view)) { e.preventDefault(); openRecord(S.view, null); }
+  else if (e.code === 'Slash' && !e.shiftKey && isTable) { e.preventDefault(); document.querySelector('.search input')?.focus(); }
+  else if (e.key === '?' || (e.code === 'Slash' && e.shiftKey)) { e.preventDefault(); showShortcuts(); }
+});
 
 
 
