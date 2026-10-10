@@ -5,6 +5,7 @@ import {
 import { renderStats } from './stats.js';
 import { icon } from './icons.js';
 import { renderUsers } from './users.js';
+import { renderProfile } from './profile.js';
 
 // ============ state ============
 export const S = {
@@ -45,8 +46,8 @@ async function guard(fn) {
   try { return await fn(); } catch (e) { toast(e.message || String(e), 'err'); throw e; }
 }
 
-const lsGet = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
-const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* ignore */ } };
+export const lsGet = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
+export const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* ignore */ } };
 
 export function displayOf(table, id) {
   const row = S.byId[table]?.get(Number(id)) ?? S.byId[table]?.get(id);
@@ -79,6 +80,13 @@ export function chipClass(ref, id) {
   const name = norm(displayOf('journals', id));
   const key = Object.keys(JOURNAL_COLORS).find((k) => norm(k) === name);
   return `chip journals${key ? ` jc-${JOURNAL_COLORS[key]}` : ''}`;
+}
+export function avatarEl(p, size = 32) {
+  const name = (p?.full_name || p?.email || '?').trim();
+  const initials = name.split(/\s+/).slice(0, 2).map((w) => w[0]).join('');
+  return p?.avatar_url
+    ? h('img', { class: 'avatar', src: p.avatar_url, alt: '', style: `width:${size}px;height:${size}px` })
+    : h('span', { class: 'avatar initials', style: `width:${size}px;height:${size}px;font-size:${Math.round(size * 0.38)}px` }, initials);
 }
 export function userName(id) {
   if (!id) return 'NocoDB / قبل الواجهة';
@@ -135,10 +143,10 @@ export async function loadAll() {
 }
 
 // ============ theme ============
-const THEMES = [['light', 'أبيض', 'sun'], ['dark', 'كحلي', 'moon'], ['auto', 'تلقائي', 'monitor']];
+export const THEMES = [['light', 'أبيض', 'sun'], ['dark', 'كحلي', 'moon'], ['auto', 'تلقائي', 'monitor']];
 const darkQuery = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
-function currentTheme() { return lsGet('tajdid_theme', 'light'); }
-function applyTheme(mode = currentTheme()) {
+export function currentTheme() { return lsGet('tajdid_theme', 'light'); }
+export function applyTheme(mode = currentTheme()) {
   const root = document.documentElement;
   root.dataset.theme = mode;
   root.classList.toggle('is-dark', mode === 'dark' || (mode === 'auto' && !!darkQuery?.matches));
@@ -168,7 +176,7 @@ async function boot() {
     await loadAll();
     S.me = S.byId.profiles.get(S.me.id);
     S.view = lsGet('tajdid_view', 'researches');
-    if ((!TABLES[S.view] && !['stats', 'users'].includes(S.view)) || (TABLES[S.view] && !isTableVisible(S.me.role, S.view))) S.view = 'researches';
+    if ((!TABLES[S.view] && !['stats', 'users', 'profile'].includes(S.view)) || (TABLES[S.view] && !isTableVisible(S.me.role, S.view))) S.view = 'researches';
     renderShell();
   } catch (e) {
     toast(e.message, 'err');
@@ -275,7 +283,10 @@ export function renderShell() {
       role === 'owner' ? [h('div', { class: 'nav-title' }, 'الإدارة'), navItem('users', 'users', 'المستخدمون', pendingUsers ? `${pendingUsers} جديد` : null)] : null),
     themeSwitch(),
     h('div', { class: 'me' },
-      h('div', {}, h('b', {}, S.me.full_name || S.me.email), h('small', {}, ROLE_LABELS[role])),
+      h('button', {
+        class: `me-link ${S.view === 'profile' ? 'active' : ''}`, title: 'حسابي',
+        onclick: () => { S.view = 'profile'; lsSet('tajdid_view', 'profile'); renderShell(); closeSidebar(); },
+      }, avatarEl(S.me, 34), h('div', {}, h('b', {}, S.me.full_name || S.me.email), h('small', {}, ROLE_LABELS[role]))),
       h('button', { class: 'btn ghost sm icon-btn', title: 'تسجيل الخروج', 'aria-label': 'تسجيل الخروج', onclick: async () => { await api.signOut(); renderLogin(); } }, icon('logout', 18))));
 
   const main = h('main', { class: 'main' });
@@ -284,7 +295,8 @@ export function renderShell() {
     h('div', { class: 'backdrop', onclick: closeSidebar }),
     sidebar, main));
 
-  if (S.view === 'stats') renderStats(main);
+  if (S.view === 'profile') renderProfile(main);
+  else if (S.view === 'stats') renderStats(main);
   else if (S.view === 'users') renderUsers(main);
   else renderGrid(main, S.view);
 }

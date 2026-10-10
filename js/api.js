@@ -172,3 +172,28 @@ export async function deleteRows(table, match) {
   if (!rows || !rows.length) throw new ApiError('ليس لديك صلاحية لحذف هذا السجل');
   return rows;
 }
+
+// ---------- Storage ----------
+export async function uploadPublic(bucket, path, blob, retry = true) {
+  if (session && session.expires_at - 60 < Date.now() / 1000) await refresh();
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}/${path}`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_KEY, Authorization: `Bearer ${session.access_token}`,
+      'Content-Type': blob.type || 'application/octet-stream', 'x-upsert': 'true', 'cache-control': '3600',
+    },
+    body: blob,
+  });
+  if (res.status === 401 && retry) { await refresh(); return uploadPublic(bucket, path, blob, false); }
+  if (!res.ok) {
+    let msg = 'تعذّر رفع الصورة';
+    try { const b = await res.json(); if (/size/i.test(b.message || b.error || '')) msg = 'حجم الصورة كبير جداً'; } catch { /* ignore */ }
+    throw new ApiError(msg);
+  }
+  return `${SUPABASE_URL}/storage/v1/object/public/${bucket}/${path}?v=${Date.now()}`;
+}
+
+// Verify a password without changing the current session
+export async function checkPassword(email, password) {
+  try { await authFetch('token?grant_type=password', { email, password }); return true; } catch { return false; }
+}

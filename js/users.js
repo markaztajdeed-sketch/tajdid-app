@@ -1,6 +1,6 @@
 import { icon } from './icons.js';
 import * as api from './api.js';
-import { S, h, toast, renderShell } from './app.js';
+import { S, h, toast, renderShell, avatarEl } from './app.js';
 import { ROLE_LABELS } from './schema.js';
 
 async function reloadUsers() {
@@ -50,7 +50,7 @@ export function renderUsers(main) {
         h('tbody', {}, users.map((p) => {
           const self = p.id === S.me.id;
           return h('tr', { class: p.active ? '' : 'pending' },
-            h('td', {}, h('input', { class: 'inline', value: p.full_name || '', onchange: (e) => update(p, { full_name: e.target.value.trim() || null }) })),
+            h('td', {}, h('div', { class: 'user-cell' }, avatarEl(p, 30), h('input', { class: 'inline', value: p.full_name || '', onchange: (e) => update(p, { full_name: e.target.value.trim() || null }) }))),
             h('td', { class: 'ltr' }, p.email),
             h('td', {}, h('select', { disabled: self, onchange: (e) => update(p, { role: e.target.value }) },
               Object.entries(ROLE_LABELS).map(([k, v]) => h('option', { value: k, selected: p.role === k }, v)))),

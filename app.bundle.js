@@ -177,7 +177,32 @@ async function deleteRows(table, match) {
   return rows;
 }
 
-return { SUPABASE_URL, SUPABASE_KEY, getSession, ApiError, signIn, signUp, recoverPassword, updatePassword, signOut, consumeUrlSession, selectAll, insertRow, updateRows, deleteRows };
+// ---------- Storage ----------
+async function uploadPublic(bucket, path, blob, retry = true) {
+  if (session && session.expires_at - 60 < Date.now() / 1000) await refresh();
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}/${path}`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_KEY, Authorization: `Bearer ${session.access_token}`,
+      'Content-Type': blob.type || 'application/octet-stream', 'x-upsert': 'true', 'cache-control': '3600',
+    },
+    body: blob,
+  });
+  if (res.status === 401 && retry) { await refresh(); return uploadPublic(bucket, path, blob, false); }
+  if (!res.ok) {
+    let msg = 'تعذّر رفع الصورة';
+    try { const b = await res.json(); if (/size/i.test(b.message || b.error || '')) msg = 'حجم الصورة كبير جداً'; } catch { /* ignore */ }
+    throw new ApiError(msg);
+  }
+  return `${SUPABASE_URL}/storage/v1/object/public/${bucket}/${path}?v=${Date.now()}`;
+}
+
+// Verify a password without changing the current session
+async function checkPassword(email, password) {
+  try { await authFetch('token?grant_type=password', { email, password }); return true; } catch { return false; }
+}
+
+return { SUPABASE_URL, SUPABASE_KEY, getSession, ApiError, signIn, signUp, recoverPassword, updatePassword, signOut, consumeUrlSession, selectAll, insertRow, updateRows, deleteRows, uploadPublic, checkPassword };
 })();
 // Line icons (Lucide-style, 24×24, stroke = currentColor).
 const PATHS = {
@@ -205,6 +230,8 @@ const PATHS = {
   link: '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
   trash: '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
   keyboard: '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 13h.01M10 13h.01M14 13h.01M18 13h.01M8 16h8"/>',
+  camera: '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3z"/><circle cx="12" cy="13" r="3"/>',
+  lock: '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
   moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/>',
   monitor: '<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>',
@@ -392,6 +419,7 @@ const fieldsFor = (role, table) => TABLES[table].fields.filter((f) => !f.staffOn
 
 
 
+
 // ============ state ============
 const S = {
   data: {},          // table -> rows
@@ -465,6 +493,13 @@ function chipClass(ref, id) {
   const name = norm(displayOf('journals', id));
   const key = Object.keys(JOURNAL_COLORS).find((k) => norm(k) === name);
   return `chip journals${key ? ` jc-${JOURNAL_COLORS[key]}` : ''}`;
+}
+function avatarEl(p, size = 32) {
+  const name = (p?.full_name || p?.email || '?').trim();
+  const initials = name.split(/\s+/).slice(0, 2).map((w) => w[0]).join('');
+  return p?.avatar_url
+    ? h('img', { class: 'avatar', src: p.avatar_url, alt: '', style: `width:${size}px;height:${size}px` })
+    : h('span', { class: 'avatar initials', style: `width:${size}px;height:${size}px;font-size:${Math.round(size * 0.38)}px` }, initials);
 }
 function userName(id) {
   if (!id) return 'NocoDB / قبل الواجهة';
@@ -554,7 +589,7 @@ async function boot() {
     await loadAll();
     S.me = S.byId.profiles.get(S.me.id);
     S.view = lsGet('tajdid_view', 'researches');
-    if ((!TABLES[S.view] && !['stats', 'users'].includes(S.view)) || (TABLES[S.view] && !isTableVisible(S.me.role, S.view))) S.view = 'researches';
+    if ((!TABLES[S.view] && !['stats', 'users', 'profile'].includes(S.view)) || (TABLES[S.view] && !isTableVisible(S.me.role, S.view))) S.view = 'researches';
     renderShell();
   } catch (e) {
     toast(e.message, 'err');
@@ -661,7 +696,10 @@ function renderShell() {
       role === 'owner' ? [h('div', { class: 'nav-title' }, 'الإدارة'), navItem('users', 'users', 'المستخدمون', pendingUsers ? `${pendingUsers} جديد` : null)] : null),
     themeSwitch(),
     h('div', { class: 'me' },
-      h('div', {}, h('b', {}, S.me.full_name || S.me.email), h('small', {}, ROLE_LABELS[role])),
+      h('button', {
+        class: `me-link ${S.view === 'profile' ? 'active' : ''}`, title: 'حسابي',
+        onclick: () => { S.view = 'profile'; lsSet('tajdid_view', 'profile'); renderShell(); closeSidebar(); },
+      }, avatarEl(S.me, 34), h('div', {}, h('b', {}, S.me.full_name || S.me.email), h('small', {}, ROLE_LABELS[role]))),
       h('button', { class: 'btn ghost sm icon-btn', title: 'تسجيل الخروج', 'aria-label': 'تسجيل الخروج', onclick: async () => { await api.signOut(); renderLogin(); } }, icon('logout', 18))));
 
   const main = h('main', { class: 'main' });
@@ -670,7 +708,8 @@ function renderShell() {
     h('div', { class: 'backdrop', onclick: closeSidebar }),
     sidebar, main));
 
-  if (S.view === 'stats') renderStats(main);
+  if (S.view === 'profile') renderProfile(main);
+  else if (S.view === 'stats') renderStats(main);
   else if (S.view === 'users') renderUsers(main);
   else renderGrid(main, S.view);
 }
@@ -1358,7 +1397,7 @@ function renderUsers(main) {
         h('tbody', {}, users.map((p) => {
           const self = p.id === S.me.id;
           return h('tr', { class: p.active ? '' : 'pending' },
-            h('td', {}, h('input', { class: 'inline', value: p.full_name || '', onchange: (e) => update(p, { full_name: e.target.value.trim() || null }) })),
+            h('td', {}, h('div', { class: 'user-cell' }, avatarEl(p, 30), h('input', { class: 'inline', value: p.full_name || '', onchange: (e) => update(p, { full_name: e.target.value.trim() || null }) }))),
             h('td', { class: 'ltr' }, p.email),
             h('td', {}, h('select', { disabled: self, onchange: (e) => update(p, { role: e.target.value }) },
               Object.entries(ROLE_LABELS).map(([k, v]) => h('option', { value: k, selected: p.role === k }, v)))),
@@ -1368,6 +1407,180 @@ function renderUsers(main) {
                 ? h('button', { class: 'btn sm', onclick: () => update(p, { active: false }) }, 'إيقاف')
                 : h('button', { class: 'btn primary sm', onclick: () => update(p, { active: true }) }, 'تفعيل')));
         }))))));
+}
+
+
+
+
+
+const MONTHS = ['كانون الثاني', 'شباط', 'آذار', 'نيسان', 'أيار', 'حزيران', 'تموز', 'آب', 'أيلول', 'تشرين الأول', 'تشرين الثاني', 'كانون الأول'];
+
+// Square-crop and shrink an image file to a small JPEG before upload
+async function toAvatarBlob(file, size = 256) {
+  const img = await new Promise((resolve, reject) => {
+    const el = new Image();
+    el.onload = () => resolve(el);
+    el.onerror = () => reject(new api.ApiError('تعذّر قراءة الصورة'));
+    el.src = URL.createObjectURL(file);
+  });
+  const side = Math.min(img.naturalWidth, img.naturalHeight);
+  const canvas = document.createElement('canvas');
+  canvas.width = size; canvas.height = size;
+  canvas.getContext('2d').drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, size, size);
+  URL.revokeObjectURL(img.src);
+  return new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.88));
+}
+
+async function saveProfile(values) {
+  const updated = await api.updateRows('profiles', { id: S.me.id }, values);
+  Object.assign(S.me, updated);
+  S.byId.profiles?.set(S.me.id, S.me);
+}
+
+function card(title, ic, ...body) {
+  return h('section', { class: 'card' }, h('h3', {}, icon(ic, 18), title), ...body);
+}
+
+function identityCard() {
+  const fileInput = h('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp', hidden: true });
+  const status = h('small', { class: 'muted' }, 'JPG أو PNG، وتُقصّ تلقائياً بشكل مربّع.');
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) { toast('حجم الصورة كبير جداً (الحد 8 ميغابايت)', 'err'); return; }
+    status.textContent = 'جارٍ رفع الصورة…';
+    try {
+      const blob = await toAvatarBlob(file);
+      const url = await api.uploadPublic('avatars', `${S.me.id}/avatar.jpg`, blob);
+      await saveProfile({ avatar_url: url });
+      toast('تم تحديث الصورة');
+      renderShell();
+    } catch (e) { toast(e.message, 'err'); status.textContent = ''; }
+  });
+
+  const name = h('input', { type: 'text', value: S.me.full_name || '', dir: 'auto' });
+  const saveName = h('button', {
+    class: 'btn primary',
+    onclick: async () => {
+      const v = name.value.trim();
+      if (!v) { toast('الاسم لا يمكن أن يكون فارغاً', 'warn'); return; }
+      try { await saveProfile({ full_name: v }); toast('تم حفظ الاسم'); renderShell(); } catch (e) { toast(e.message, 'err'); }
+    },
+  }, 'حفظ الاسم');
+  name.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveName.click(); });
+
+  return card('الملف الشخصي', 'user',
+    h('div', { class: 'profile-head' },
+      h('div', { class: 'avatar-wrap' }, avatarEl(S.me, 88)),
+      h('div', { class: 'avatar-actions' },
+        h('button', { class: 'btn', onclick: () => fileInput.click() }, icon('camera', 16), S.me.avatar_url ? 'تغيير الصورة' : 'إضافة صورة'),
+        S.me.avatar_url ? h('button', {
+          class: 'btn ghost', onclick: async () => {
+            try { await saveProfile({ avatar_url: null }); toast('أُزيلت الصورة'); renderShell(); } catch (e) { toast(e.message, 'err'); }
+          },
+        }, 'إزالة') : null,
+        status, fileInput)),
+    h('div', { class: 'form-rows' },
+      h('label', { class: 'f' }, h('span', {}, 'الاسم الظاهر'), h('div', { class: 'with-btn' }, name, saveName)),
+      h('div', { class: 'f' }, h('span', {}, 'البريد الإلكتروني'), h('div', { class: 'ro-val ltr' }, S.me.email)),
+      h('div', { class: 'f' }, h('span', {}, 'الدور'), h('div', {}, h('span', { class: 'chip' }, ROLE_LABELS[S.me.role])))));
+}
+
+function passwordCard() {
+  const cur = h('input', { type: 'password', dir: 'ltr', autocomplete: 'current-password' });
+  const pw1 = h('input', { type: 'password', dir: 'ltr', autocomplete: 'new-password', minlength: 6 });
+  const pw2 = h('input', { type: 'password', dir: 'ltr', autocomplete: 'new-password' });
+  const msg = h('div', { class: 'form-err' });
+  const btn = h('button', {
+    class: 'btn primary',
+    onclick: async () => {
+      msg.className = 'form-err'; msg.textContent = '';
+      if (pw1.value.length < 6) { msg.textContent = 'كلمة السر الجديدة يجب أن تكون 6 أحرف على الأقل'; return; }
+      if (pw1.value !== pw2.value) { msg.textContent = 'كلمتا السر الجديدتان غير متطابقتين'; return; }
+      btn.disabled = true;
+      try {
+        if (!(await api.checkPassword(S.me.email, cur.value))) throw new api.ApiError('كلمة السر الحالية غير صحيحة');
+        await api.updatePassword(pw1.value);
+        cur.value = ''; pw1.value = ''; pw2.value = '';
+        msg.className = 'form-ok'; msg.textContent = 'تم تغيير كلمة السر بنجاح.';
+      } catch (e) { msg.textContent = e.message; }
+      btn.disabled = false;
+    },
+  }, 'تغيير كلمة السر');
+  return card('كلمة السر', 'lock',
+    h('div', { class: 'form-rows' },
+      h('label', { class: 'f' }, h('span', {}, 'كلمة السر الحالية'), cur),
+      h('label', { class: 'f' }, h('span', {}, 'كلمة السر الجديدة'), pw1),
+      h('label', { class: 'f' }, h('span', {}, 'تأكيد كلمة السر الجديدة'), pw2)),
+    msg, btn);
+}
+
+function themeCard() {
+  const mode = currentTheme();
+  return card('مظهر الواجهة', 'sun',
+    h('div', { class: 'theme-tiles' }, THEMES.map(([k, label, ic]) => h('button', {
+      class: `theme-tile t-${k} ${k === mode ? 'on' : ''}`,
+      onclick: () => { lsSet('tajdid_theme', k); applyTheme(k); renderShell(); },
+    }, h('span', { class: 'preview' }, h('i'), h('i'), h('i')), h('span', { class: 'tl' }, icon(ic, 15), label)))),
+    h('small', { class: 'muted' }, '«تلقائي» يتبع إعدادات جهازك. الاختيار يُحفظ على هذا الجهاز.'));
+}
+
+function statsCard() {
+  const me = S.me.id;
+  const mine = (t) => (S.data[t] || []).filter((r) => r.created_by === me);
+  const edited = (t) => (S.data[t] || []).filter((r) => r.updated_by === me && r.created_by !== me).length;
+  const R = mine('researches'); const P = mine('persons'); const PB = mine('publishers');
+  const all = [...R, ...P, ...PB];
+  const now = new Date();
+  const sameMonth = (d) => d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+  const thisMonth = all.filter((r) => r.created_at && sameMonth(new Date(r.created_at))).length;
+  const edits = edited('researches') + edited('persons') + edited('publishers');
+
+  // last 6 months
+  const months = [];
+  for (let i = 5; i >= 0; i -= 1) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const n = all.filter((r) => { const c = r.created_at && new Date(r.created_at); return c && c.getFullYear() === d.getFullYear() && c.getMonth() === d.getMonth(); }).length;
+    months.push({ label: MONTHS[d.getMonth()], n });
+  }
+  const max = Math.max(1, ...months.map((m) => m.n));
+
+  // my researches by journal
+  const rids = new Set(R.map((r) => r.id));
+  const byJournal = new Map();
+  for (const l of S.data.research_journals || []) if (rids.has(l.research_id)) byJournal.set(l.journal_id, (byJournal.get(l.journal_id) || 0) + 1);
+
+  const recent = [...R].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 5);
+  const tile = (n, l) => h('div', { class: 'tile' }, h('span', { class: 'tile-n' }, n), h('span', { class: 'tile-l' }, l));
+
+  return card('إحصائيات عملي', 'chart',
+    h('div', { class: 'tiles' },
+      tile(R.length, 'بحث أدخلته'),
+      tile(P.length, 'شخص أضفته'),
+      tile(PB.length, 'ناشر أضفته'),
+      tile(thisMonth, 'إدخال هذا الشهر'),
+      tile(edits, 'تعديل على سجلات أخرى')),
+    h('h4', { class: 'sub' }, 'إدخالاتي في آخر 6 أشهر'),
+    h('div', { class: 'month-bars' }, months.map((m) => h('div', { class: 'mb', title: `${m.label}: ${m.n}` },
+      h('span', { class: 'mb-n' }, m.n || ''),
+      h('span', { class: 'mb-track' }, h('span', { class: 'mb-bar', style: `height:${(m.n / max) * 100}%` })),
+      h('span', { class: 'mb-l' }, m.label)))),
+    byJournal.size ? [h('h4', { class: 'sub' }, 'أبحاثي حسب المجلة'),
+      h('div', { class: 'ro-chips' }, [...byJournal].sort((a, b) => b[1] - a[1]).map(([id, n]) => h('span', { class: chipClass('journals', id) }, displayOf('journals', id), h('small', { class: 'chip-count' }, n))))] : null,
+    h('h4', { class: 'sub' }, 'آخر ما أدخلته'),
+    recent.length
+      ? h('ul', { class: 'recent' }, recent.map((r) => h('li', {},
+        h('button', { class: 'link-btn', onclick: () => openRecord('researches', r) }, r.title),
+        h('small', { class: 'muted' }, r.created_at ? new Date(r.created_at).toLocaleDateString('ar-LB', { day: 'numeric', month: 'short', year: 'numeric' }) : ''))))
+      : h('p', { class: 'muted' }, 'لم تُدخل أي بحث من الواجهة بعد. (الأبحاث المُدخلة سابقاً من NocoDB لا تُحتسب هنا.)'));
+}
+
+function renderProfile(main) {
+  main.replaceChildren(
+    h('div', { class: 'toolbar' }, h('h1', {}, icon('user', 22), 'حسابي')),
+    h('div', { class: 'profile' },
+      h('div', { class: 'profile-col' }, identityCard(), themeCard(), passwordCard()),
+      h('div', { class: 'profile-col wide' }, statsCard())));
 }
 
 boot();
