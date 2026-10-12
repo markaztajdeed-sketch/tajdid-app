@@ -4,7 +4,9 @@ import { icon } from './icons.js';
 import {
   S, h, displayOf, chipClass, openRecord, renderShell, lsGet, lsSet, linkedIds, subtitleOf, isArticle,
 } from './app.js';
-import { canInsert, canEditRow, managesJournal, seesSubmissions } from './schema.js';
+import {
+  canInsert, canEditRow, managesJournal, seesSubmissions, FREQUENCIES, PERIODS, periodOfDate, issueWhen,
+} from './schema.js';
 import { filesTab, issueCover, issueFilesCard, issueThumb } from './files.js';
 
 const TABS = [['overview', 'نظرة عامة', 'chart'], ['issues', 'الأعداد', 'journal'], ['people', 'الأشخاص', 'users'], ['files', 'الملفات', 'folder']];
@@ -37,6 +39,7 @@ function researchesOf(jid) {
   return (S.data.researches || []).filter((r) => isArticle(r) && iids.has(r.pub.issue_id));
 }
 // Submissions to a journal still in progress (not rejected, not yet published)
+const rejectedOf = (jid) => (S.data.researches || []).filter((r) => r.sub && r.sub.journal_id === jid && r.sub.stage === 'rejected');
 const inProgressOf = (jid) => (S.data.researches || []).filter((r) => r.sub && r.sub.journal_id === jid && !r.pub && r.sub.stage !== 'rejected');
 const names = (ref, ids) => ids.map((id) => displayOf(ref, id)).join('، ');
 const personNames = (rid, via) => names('persons', linkedIds({ via, self: 'research_id', other: 'person_id' }, rid));
@@ -54,8 +57,11 @@ function header(j) {
       onclick: () => { lsSet('tajdid_journal', x.id); go({ issueId: null }); },
     }, x.name, h('small', { class: 'chip-count' }, issuesOf(x.id).length))))
     : h('span', { class: `${chipClass('journals', j.id)} big` }, j.name);
+  const staff = ['owner', 'admin'].includes(S.me.role);
   return h('div', { class: 'toolbar journal-bar' },
     h('h1', {}, icon('journal', 22), title),
+    j.frequency ? h('span', { class: 'chip soft freq' }, `دورية ${FREQUENCIES[j.frequency]}`) : null,
+    staff ? h('button', { class: 'btn sm', title: 'اسم المجلة ودوريتها', onclick: () => openRecord('journals', j, 'frequency') }, 'بيانات المجلة') : null,
     h('nav', { class: 'tabs', role: 'tablist' }, TABS.filter(([k]) => k !== 'files' || managesJournal(S.me.role, j.id)).map(([k, label, ic]) => h('button', {
       class: `tab ${(S.journalTab || 'overview') === k && !S.issueId ? 'on' : ''}`, role: 'tab',
       onclick: () => go({ journalTab: k, issueId: null }),
@@ -72,8 +78,9 @@ function overview(j) {
   return h('div', { class: 'journal-page' },
     h('div', { class: 'tiles' },
       tile(issues.length, 'عدد'), tile(articles.length, 'مقالة منشورة'),
+      tile(people('research_researchers'), 'باحث'), tile(people('research_translators'), 'مترجم'),
       seesSubmissions(S.me.role) ? tile(inProgressOf(j.id).length, 'استلام قيد العمل') : null,
-      tile(people('research_researchers'), 'باحث'), tile(people('research_translators'), 'مترجم')),
+      seesSubmissions(S.me.role) ? tile(rejectedOf(j.id).length, 'مرفوض') : null),
     h('div', { class: 'cards' },
       h('section', { class: 'card' }, h('h3', {}, 'آخر الأعداد'),
         issues.length
@@ -89,9 +96,23 @@ function emptyIssues(j) {
     managesJournal(S.me.role, j.id) ? h('button', { class: 'btn primary', onclick: () => newIssue(j) }, icon('plus', 16), 'إضافة أول عدد') : null);
 }
 
+// Suggest the next number, and the next period & year by the journal's frequency
+export function nextIssueDefaults(j) {
+  const list = issuesOf(j.id);
+  const last = list.reduce((a, i) => (!a || i.number > a.number ? i : a), null);
+  const now = new Date();
+  const out = { journal_id: j.id, number: (last?.number || 0) + 1, year: now.getFullYear(), period: null };
+  const seq = PERIODS[j.frequency];
+  if (!seq) { if (last?.year && last.year > out.year) out.year = last.year; return out; }
+  const idx = last ? seq.indexOf(last.period) : -1;
+  if (idx >= 0) {
+    out.period = seq[(idx + 1) % seq.length];
+    out.year = (last.year || out.year) + (idx + 1 === seq.length ? 1 : 0);
+  } else out.period = periodOfDate(j.frequency, now);
+  return out;
+}
 function newIssue(j) {
-  const max = Math.max(0, ...issuesOf(j.id).map((i) => i.number));
-  openRecord('issues', null, 'number', { journal_id: j.id, number: max + 1, year: new Date().getFullYear() });
+  openRecord('issues', null, 'number', nextIssueDefaults(j));
 }
 
 // ---------- issues ----------
@@ -100,8 +121,8 @@ function issueCard(i) {
   return h('button', { class: 'issue-card', onclick: () => go({ journalTab: 'issues', issueId: i.id }) },
     issueThumb(i, h('span', { class: `issue-num ${chipClass('journals', i.journal_id).replace('chip ', '')}` }, i.number)),
     h('span', { class: 'issue-meta' },
-      h('b', {}, `العدد ${i.number}${i.title ? ` · ${i.title}` : ''}`),
-      h('small', { class: 'muted' }, [i.year, `${n} مقالة`].filter(Boolean).join(' · '))));
+      h('b', {}, `العدد ${i.number}${issueWhen(i) ? ` · ${issueWhen(i)}` : ''}`),
+      h('small', { class: 'muted' }, [i.title, `${n} مقالة`].filter(Boolean).join(' · '))));
 }
 
 function issuesTab(j) {
@@ -134,9 +155,10 @@ function issuePage(j, issue) {
     h('div', { class: 'issue-head card' },
       issueCover(j, issue, h('span', { class: `issue-num big ${chipClass('journals', j.id).replace('chip ', '')}` }, issue.number)),
       h('div', { class: 'issue-info' },
-        h('h2', {}, `${j.name} · العدد ${issue.number}`),
+        h('h2', {}, `${j.name} · العدد ${issue.number}${issueWhen(issue) ? ` · ${issueWhen(issue)}` : ''}`),
         issue.title ? h('p', { class: 'issue-title' }, issue.title) : null,
-        h('p', { class: 'muted' }, [issue.year && `سنة ${issue.year}`, `${rows.length} مقالة`, pages ? `${pages} صفحة` : null].filter(Boolean).join(' · ')),
+        h('p', { class: 'muted' }, [`${rows.length} مقالة`, pages ? `${pages} صفحة` : null].filter(Boolean).join(' · ')),
+        issue.isbn ? h('p', { class: 'issue-isbn' }, 'ISBN ', h('span', { dir: 'ltr' }, issue.isbn)) : null,
         issue.notes ? h('p', {}, issue.notes) : null,
         h('div', { class: 'row-actions' },
           canInsert(S.me.role, 'researches') && managesJournal(S.me.role, j.id)

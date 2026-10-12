@@ -143,6 +143,20 @@ export const STAGES = {
 };
 export const FREQUENCIES = { annual: 'سنوية', semiannual: 'نصف سنوية', quarterly: 'فصلية' };
 export const ENUMS = { PUB_KINDS, STAGES, FREQUENCIES };
+// Issue periods in order, by journal frequency (annual journals have none)
+export const PERIODS = {
+  quarterly: ['شتاء', 'ربيع', 'صيف', 'خريف'],
+  semiannual: ['النصف الأول', 'النصف الثاني'],
+};
+// Period of a date: quarterly → season (winter = Dec–Feb), semiannual → half of the year
+export function periodOfDate(freq, d = new Date()) {
+  const m = d.getMonth();
+  if (freq === 'quarterly') return PERIODS.quarterly[Math.floor(((m + 1) % 12) / 3)];
+  if (freq === 'semiannual') return PERIODS.semiannual[m < 6 ? 0 : 1];
+  return null;
+}
+// Text shown for an issue's time: «ربيع 2026», or just the year
+export const issueWhen = (i) => [i?.period, i?.year].filter(Boolean).join(' ');
 export const CENTER_LIBRARY = 'إصدارات المركز';
 // Who may see submissions (data entry does not)
 export const seesSubmissions = (role) => ['owner', 'admin', 'editor'].includes(role);

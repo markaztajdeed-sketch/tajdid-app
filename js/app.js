@@ -1,7 +1,7 @@
 import * as api from './api.js';
 import {
   TABLES, AUX_TABLES, ROLE_LABELS, FORM_LAYOUT, FULL_WIDTH, JOURNAL_COLORS, isTableVisible, fieldsFor, setManagedJournals, canInsert, canEditRow, canEditField, canDelete,
-  ENUMS, PUB_KINDS, STAGES, CENTER_LIBRARY, RESEARCH_VIEWS, seesSubmissions,
+  ENUMS, PUB_KINDS, STAGES, CENTER_LIBRARY, RESEARCH_VIEWS, seesSubmissions, issueWhen,
 } from './schema.js';
 import { researchExtSections } from './research.js';
 import { renderStats } from './stats.js';
@@ -104,7 +104,7 @@ function index(table) {
   S.byId[table] = new Map((S.data[table] || []).map((r) => [r.id, r]));
 }
 function issueLabel(i) {
-  return `${displayOf('journals', i.journal_id)} · العدد ${i.number}${i.year ? ` (${i.year})` : ''}`;
+  return `${displayOf('journals', i.journal_id)} · العدد ${i.number}${issueWhen(i) ? ` (${issueWhen(i)})` : ''}`;
 }
 // ---- research publication helpers (read the 1:1 extension objects: pub, bib, trans, sub) ----
 // Value of a field on a row — extension fields live in row[f.ext][f.col]

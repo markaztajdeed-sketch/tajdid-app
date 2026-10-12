@@ -576,3 +576,5 @@ table.grid.simple { width: 100%; table-layout: auto; }
 .timeline li.tl-rejected::before { background: var(--danger); }
 .timeline li.tl-published::before, .timeline li.tl-accepted::before { background: #2e9d5b; }
 .timeline .tl-note { flex-basis: 100%; font-size: 12.5px; color: var(--text-2); }
+.chip.freq { font-size: 12px; }
+.issue-isbn { font-size: 13px; color: var(--text-2); margin: 0; }
