@@ -540,3 +540,6 @@ table.grid.simple { width: 100%; table-layout: auto; }
 .chip.ver.link { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .btn.sm.danger { color: var(--danger); }
 @media (max-width: 760px) { .form-rows.two { grid-template-columns: 1fr; } }
+.issue-thumb { width: 44px; height: 58px; object-fit: cover; border-radius: 6px; box-shadow: var(--shadow); background: var(--surface-2); flex: none; }
+.linked-files { display: grid; gap: 10px; }
+.linked-files .files-tools { align-items: center; }

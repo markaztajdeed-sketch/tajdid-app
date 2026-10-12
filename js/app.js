@@ -7,7 +7,7 @@ import { icon } from './icons.js';
 import { renderUsers } from './users.js';
 import { renderProfile } from './profile.js';
 import { renderJournal, journalNavVisible } from './journal.js';
-import { renderTrash } from './files.js';
+import { renderTrash, linkedFilesSection } from './files.js';
 
 // ============ state ============
 export const S = {
@@ -837,6 +837,7 @@ export function openRecord(table, row, focusKey, defaults = null) {
   if (layout) layout.forEach(([title, keys]) => section(title, keys));
   const metaKeys = fieldsFor(role, table).filter((f) => f.type === 'user' || f.type === 'date').map((f) => f.key);
   section(layout ? 'حقول أخرى' : '', fieldsFor(role, table).map((f) => f.key).filter((k) => !metaKeys.includes(k)));
+  if (!isNew) { const lf = linkedFilesSection(table, row); if (lf) form.append(lf); }
   section('معلومات السجل', metaKeys, 'meta');
 
   // Articles belong to an issue (with pages and order); books & translations to a journal directly

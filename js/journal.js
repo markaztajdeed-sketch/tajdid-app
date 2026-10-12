@@ -4,7 +4,7 @@ import {
   S, h, displayOf, chipClass, openRecord, renderShell, lsGet, lsSet, linkedIds, subtitleOf,
 } from './app.js';
 import { canInsert, canEditRow, managesJournal } from './schema.js';
-import { filesTab, issueCover, issueFilesCard } from './files.js';
+import { filesTab, issueCover, issueFilesCard, issueThumb } from './files.js';
 
 const TABS = [['overview', 'نظرة عامة', 'chart'], ['issues', 'الأعداد', 'journal'], ['books', 'الكتب والمترجمات', 'book'], ['people', 'الأشخاص', 'users'], ['files', 'الملفات', 'folder']];
 const PEOPLE_LINKS = [
@@ -95,7 +95,7 @@ function newIssue(j) {
 function issueCard(i) {
   const n = articlesOf(i.id).length;
   return h('button', { class: 'issue-card', onclick: () => go({ journalTab: 'issues', issueId: i.id }) },
-    h('span', { class: `issue-num ${chipClass('journals', i.journal_id).replace('chip ', '')}` }, i.number),
+    issueThumb(i, h('span', { class: `issue-num ${chipClass('journals', i.journal_id).replace('chip ', '')}` }, i.number)),
     h('span', { class: 'issue-meta' },
       h('b', {}, `العدد ${i.number}${i.title ? ` · ${i.title}` : ''}`),
       h('small', { class: 'muted' }, [i.year, `${n} مقالة`].filter(Boolean).join(' · '))));

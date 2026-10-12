@@ -343,6 +343,80 @@ export function issueFilesCard(j, issue, go) {
   return card;
 }
 
+// ---------- linked files inside the research / person window ----------
+const FL_COLS = '*,file_versions(id,version,size,mime,path,note,created_at,created_by),folder:folders(name,issue_id)';
+function flNormalize(f) {
+  const vs = (f.file_versions || []).sort((a, b) => b.version - a.version);
+  delete f.file_versions;
+  return Object.assign(f, { versions: vs, latest: vs[0] || null, size: vs[0]?.size ?? null });
+}
+
+export function linkedFilesSection(table, row) {
+  if (!['owner', 'admin', 'editor'].includes(S.me.role) || !row?.id) return null;
+  const col = table === 'researches' ? 'research_id' : table === 'persons' ? 'person_id' : null;
+  if (!col) return null;
+  const list = h('div', { class: 'linked-files' }, h('p', { class: 'muted' }, 'جارٍ التحميل…'));
+  const sec = h('section', { class: 'form-section' }, h('h4', {}, 'الملفات المرتبطة'), list);
+  const issue = table === 'researches' && row.issue_id ? S.byId.issues?.get(row.issue_id) : null;
+  const canUpload = issue && managesJournal(S.me.role, issue.journal_id);
+  const status = h('small', { class: 'muted' });
+  const input = h('input', { type: 'file', multiple: true, hidden: true });
+  input.addEventListener('input', (e) => e.stopPropagation());
+
+  const draw = async () => {
+    let files = [];
+    try { files = (await api.select('files', `${col}=eq.${row.id}&deleted_at=is.null&order=name`, FL_COLS)).map(flNormalize); } catch (e) { list.replaceChildren(h('p', { class: 'form-err' }, e.message)); return; }
+    const act = (ic, label, fn) => h('button', { type: 'button', class: 'btn ghost sm icon-btn', title: label, 'aria-label': label, onclick: (e) => { e.stopPropagation(); fn(); } }, icon(ic, 15));
+    list.replaceChildren(
+      files.length ? h('div', { class: 'grid-wrap flat' }, h('table', { class: 'grid simple files-table' },
+        h('tbody', {}, files.map((f) => h('tr', { class: 'clickable', onclick: () => flOpen(f) },
+          h('td', {}, h('span', { class: 'f-name' }, icon('file', 16), f.name,
+            f.current_version > 1 ? h('small', { class: 'chip ver' }, `نسخة ${f.current_version}`) : null),
+            h('small', { class: 'muted sub' }, [displayOf('journals', f.journal_id), f.folder?.name].filter(Boolean).join(' › '))),
+          h('td', { class: 'muted' }, flSize(f.size)),
+          h('td', { class: 'f-act' }, act('eye', 'فتح', () => flOpen(f)), act('download', 'تنزيل', () => flOpen(f, true))))))))
+        : h('p', { class: 'muted' }, canUpload
+          ? 'لا توجد ملفات مرتبطة بعد. ارفع ملف المقالة هنا، فيُحفظ في مجلد عددها ويرتبط بها.'
+          : 'لا توجد ملفات مرتبطة. يمكن ربط أي ملف من نافذة «النسخ والتفاصيل» في تبويب الملفات.'),
+      canUpload ? h('div', { class: 'files-tools' }, h('button', { type: 'button', class: 'btn', onclick: () => input.click() }, icon('upload', 15), 'رفع ملف لهذه المقالة'), status, input) : '');
+  };
+
+  input.addEventListener('change', async (e) => {
+    e.stopPropagation();
+    const chosen = [...input.files]; input.value = '';
+    if (!chosen.length) return;
+    try {
+      const [folder] = await api.select('folders', `issue_id=eq.${issue.id}&kind=eq.issue&deleted_at=is.null`);
+      if (!folder) throw new api.ApiError('لا يوجد مجلد لهذا العدد');
+      for (const file of chosen) {
+        const path = flObjectPath(issue.journal_id, file.name);
+        await api.uploadPrivate(FL_BUCKET, path, file, (p) => { status.textContent = `${file.name}: ${Math.round(p * 100)}%`; });
+        const [same] = await api.select('files', `folder_id=eq.${folder.id}&name=eq.${encodeURIComponent(file.name)}&deleted_at=is.null`);
+        const f = same || await api.insertRow('files', { folder_id: folder.id, journal_id: issue.journal_id, name: file.name, issue_id: issue.id, research_id: row.id });
+        if (same && !same.research_id) await api.updateRows('files', { id: same.id }, { research_id: row.id });
+        await api.insertRow('file_versions', { file_id: f.id, path, size: file.size, mime: file.type || null });
+      }
+      status.textContent = 'تم الرفع'; flReset(); draw();
+    } catch (e) { status.textContent = ''; toast(e.message, 'err'); }
+  });
+  draw();
+  return sec;
+}
+
+// Small cover image for issue cards (falls back to the colored number)
+export function issueThumb(issue, fallback) {
+  if (!managesJournal(S.me.role, issue.journal_id)) return fallback;
+  if (!flEnsure(issue.journal_id, renderShell) || flCache.jid !== issue.journal_id) return fallback;
+  const folder = flIssueFolder(issue.id);
+  if (!folder) return fallback;
+  const ids = new Set(flDescFolders(folder.id));
+  const cover = flCache.files.find((f) => ids.has(f.folder_id) && f.is_issue_cover && f.latest);
+  if (!cover) return fallback;
+  const img = h('img', { class: 'issue-thumb', alt: `غلاف العدد ${issue.number}` });
+  flThumbUrl(cover.latest).then((u) => { img.src = u; }).catch(() => img.replaceWith(fallback));
+  return img;
+}
+
 // ---------- owner trash page ----------
 const flTrashState = { loading: null, data: null };
 async function flLoadTrash() {
