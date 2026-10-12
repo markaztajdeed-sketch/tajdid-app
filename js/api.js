@@ -174,7 +174,65 @@ export async function deleteRows(table, match) {
   return rows;
 }
 
+// Filtered select, e.g. select('folders', 'journal_id=eq.2&order=sort')
+export async function select(table, query = '', cols = '*') {
+  return rest(`${enc(table)}?select=${cols}${query ? `&${query}` : ''}`);
+}
+
+// Call a database function (public schema)
+export async function rpc(fn, args = {}) {
+  return rest(`rpc/${enc(fn)}`, { method: 'POST', body: args });
+}
+
 // ---------- Storage ----------
+const MAX_FILE = 50 * 1024 * 1024;
+export const MAX_FILE_MB = 50;
+
+async function freshToken() {
+  if (!session) throw new ApiError('انتهت الجلسة، يرجى تسجيل الدخول من جديد');
+  if (session.expires_at - 60 < Date.now() / 1000) await refresh();
+  return session.access_token;
+}
+
+// Upload to a private bucket with progress (0..1). Never overwrites an existing object.
+export async function uploadPrivate(bucket, path, file, onProgress) {
+  if (file.size > MAX_FILE) throw new ApiError(`حجم الملف أكبر من ${MAX_FILE_MB} ميغابايت`);
+  const token = await freshToken();
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${SUPABASE_URL}/storage/v1/object/${bucket}/${path}`);
+    xhr.setRequestHeader('apikey', SUPABASE_KEY);
+    xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+    xhr.setRequestHeader('x-upsert', 'false');
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total); };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) { onProgress?.(1); resolve(path); return; }
+      let msg = 'تعذّر رفع الملف';
+      try {
+        const b = JSON.parse(xhr.responseText); const m = `${b.message || ''} ${b.error || ''}`;
+        if (xhr.status === 413 || /size|large/i.test(m)) msg = `حجم الملف أكبر من ${MAX_FILE_MB} ميغابايت`;
+        else if (/row-level|unauthorized|403/i.test(m) || xhr.status === 403) msg = 'ليس لديك صلاحية للرفع إلى هذه المجلة';
+      } catch { /* ignore */ }
+      reject(new ApiError(msg));
+    };
+    xhr.onerror = () => reject(new ApiError('انقطع الاتصال أثناء الرفع'));
+    xhr.send(file);
+  });
+}
+
+// Temporary link (default 10 minutes). download = file name to force download.
+export async function signedUrl(bucket, path, { expiresIn = 600, download = null } = {}) {
+  const token = await freshToken();
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/sign/${bucket}/${path}`, {
+    method: 'POST',
+    headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ expiresIn }),
+  });
+  const b = await parse(res).catch(() => { throw new ApiError('تعذّر فتح الملف (ليس لديك صلاحية أو الملف غير موجود)'); });
+  const url = `${SUPABASE_URL}/storage/v1${b.signedURL || b.signedUrl}`;
+  return download ? `${url}&download=${encodeURIComponent(download)}` : url;
+}
 export async function uploadPublic(bucket, path, blob, retry = true) {
   if (session && session.expires_at - 60 < Date.now() / 1000) await refresh();
   const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}/${path}`, {

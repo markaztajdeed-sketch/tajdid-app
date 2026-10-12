@@ -178,7 +178,65 @@ async function deleteRows(table, match) {
   return rows;
 }
 
+// Filtered select, e.g. select('folders', 'journal_id=eq.2&order=sort')
+async function select(table, query = '', cols = '*') {
+  return rest(`${enc(table)}?select=${cols}${query ? `&${query}` : ''}`);
+}
+
+// Call a database function (public schema)
+async function rpc(fn, args = {}) {
+  return rest(`rpc/${enc(fn)}`, { method: 'POST', body: args });
+}
+
 // ---------- Storage ----------
+const MAX_FILE = 50 * 1024 * 1024;
+const MAX_FILE_MB = 50;
+
+async function freshToken() {
+  if (!session) throw new ApiError('انتهت الجلسة، يرجى تسجيل الدخول من جديد');
+  if (session.expires_at - 60 < Date.now() / 1000) await refresh();
+  return session.access_token;
+}
+
+// Upload to a private bucket with progress (0..1). Never overwrites an existing object.
+async function uploadPrivate(bucket, path, file, onProgress) {
+  if (file.size > MAX_FILE) throw new ApiError(`حجم الملف أكبر من ${MAX_FILE_MB} ميغابايت`);
+  const token = await freshToken();
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${SUPABASE_URL}/storage/v1/object/${bucket}/${path}`);
+    xhr.setRequestHeader('apikey', SUPABASE_KEY);
+    xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+    xhr.setRequestHeader('x-upsert', 'false');
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total); };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) { onProgress?.(1); resolve(path); return; }
+      let msg = 'تعذّر رفع الملف';
+      try {
+        const b = JSON.parse(xhr.responseText); const m = `${b.message || ''} ${b.error || ''}`;
+        if (xhr.status === 413 || /size|large/i.test(m)) msg = `حجم الملف أكبر من ${MAX_FILE_MB} ميغابايت`;
+        else if (/row-level|unauthorized|403/i.test(m) || xhr.status === 403) msg = 'ليس لديك صلاحية للرفع إلى هذه المجلة';
+      } catch { /* ignore */ }
+      reject(new ApiError(msg));
+    };
+    xhr.onerror = () => reject(new ApiError('انقطع الاتصال أثناء الرفع'));
+    xhr.send(file);
+  });
+}
+
+// Temporary link (default 10 minutes). download = file name to force download.
+async function signedUrl(bucket, path, { expiresIn = 600, download = null } = {}) {
+  const token = await freshToken();
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/sign/${bucket}/${path}`, {
+    method: 'POST',
+    headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ expiresIn }),
+  });
+  const b = await parse(res).catch(() => { throw new ApiError('تعذّر فتح الملف (ليس لديك صلاحية أو الملف غير موجود)'); });
+  const url = `${SUPABASE_URL}/storage/v1${b.signedURL || b.signedUrl}`;
+  return download ? `${url}&download=${encodeURIComponent(download)}` : url;
+}
 async function uploadPublic(bucket, path, blob, retry = true) {
   if (session && session.expires_at - 60 < Date.now() / 1000) await refresh();
   const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}/${path}`, {
@@ -203,7 +261,7 @@ async function checkPassword(email, password) {
   try { await authFetch('token?grant_type=password', { email, password }); return true; } catch { return false; }
 }
 
-return { SUPABASE_URL, SUPABASE_KEY, getSession, ApiError, signIn, signUp, recoverPassword, updatePassword, signOut, consumeUrlSession, selectAll, insertRow, updateRows, deleteRows, uploadPublic, checkPassword };
+return { SUPABASE_URL, SUPABASE_KEY, getSession, ApiError, signIn, signUp, recoverPassword, updatePassword, signOut, consumeUrlSession, selectAll, insertRow, updateRows, deleteRows, select, rpc, MAX_FILE_MB, uploadPrivate, signedUrl, uploadPublic, checkPassword };
 })();
 // Line icons (Lucide-style, 24×24, stroke = currentColor).
 const PATHS = {
@@ -235,6 +293,15 @@ const PATHS = {
   lock: '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
   moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/>',
+  folder: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/>',
+  folderPlus: '<path d="M12 10v6"/><path d="M9 13h6"/><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/>',
+  file: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/>',
+  upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/>',
+  download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>',
+  pencil: '<path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/><path d="m15 5 4 4"/>',
+  eye: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  restore: '<path d="M3 12a9 9 0 1 0 9-9 9.8 9.8 0 0 0-6.7 2.7L3 8"/><path d="M3 3v5h5"/>',
+  chevron: '<path d="m15 18-6-6 6-6"/>',
   monitor: '<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>',
 };
 
@@ -1738,11 +1805,262 @@ function renderProfile(main) {
       h('div', { class: 'profile-col wide' }, statsCard())));
 }
 
+// Journal files: folder tree, upload with progress, temporary links, rename, trash.
+// NOTE: all modules share one scope in the bundle — internal names here start with "fl".
+
+
+
+
+const FL_BUCKET = 'journal-files';
+const flCache = { jid: null, folders: [], files: [], loading: null, error: null };
+
+// ---------- data ----------
+async function flLoad(jid) {
+  const [folders, files] = await Promise.all([
+    api.select('folders', `journal_id=eq.${jid}&deleted_at=is.null&order=sort,id`),
+    api.select('files', `journal_id=eq.${jid}&deleted_at=is.null&order=name`, '*,file_versions(id,version,size,mime,path,created_at,created_by)'),
+  ]);
+  for (const f of files) {
+    const vs = (f.file_versions || []).sort((a, b) => b.version - a.version);
+    f.versions = vs; f.latest = vs[0] || null; f.size = f.latest?.size ?? null; delete f.file_versions;
+  }
+  Object.assign(flCache, { jid, folders, files, error: null });
+}
+function flEnsure(jid, redraw) {
+  if (flCache.jid === jid && !flCache.loading) return true;
+  if (!flCache.loading) {
+    flCache.loading = flLoad(jid)
+      .catch((e) => { flCache.jid = jid; flCache.folders = []; flCache.files = []; flCache.error = e.message; })
+      .finally(() => { flCache.loading = null; redraw(); });
+  }
+  return false;
+}
+function flReset() { flCache.jid = null; }
+
+const FL_RANK = { fixed: 0, issue: 1, book: 2, custom: 3 };
+const flChildren = (pid) => flCache.folders.filter((f) => (f.parent_id ?? null) === (pid ?? null))
+  .sort((a, b) => FL_RANK[a.kind] - FL_RANK[b.kind]
+    || (a.kind === 'fixed' ? String(a.code).localeCompare(String(b.code), 'en', { numeric: true })
+      : a.kind === 'issue' ? b.sort - a.sort : a.name.localeCompare(b.name, 'ar')));
+const flFilesIn = (fid) => flCache.files.filter((f) => f.folder_id === fid).sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+const flFolder = (id) => flCache.folders.find((f) => f.id === id);
+function flPath(id) {
+  const out = [];
+  for (let f = flFolder(id); f; f = flFolder(f.parent_id)) out.unshift(f);
+  return out;
+}
+function flCount(id) {
+  let n = flFilesIn(id).length;
+  for (const c of flChildren(id)) n += flCount(c.id);
+  return n;
+}
+const flFolderLabel = (f) => (f.code ? `${f.code} ${f.name}` : f.name);
+const flIssueFolder = (issueId) => flCache.folders.find((f) => f.issue_id === issueId && f.kind === 'issue');
+
+function flSize(n) {
+  if (n == null) return '—';
+  if (n < 1024) return `${n} بايت`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} ك.ب`;
+  return `${(n / 1024 / 1024).toFixed(1)} م.ب`;
+}
+const flDate = (d) => (d ? new Date(d).toLocaleDateString('ar-LB', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
+const flCanEditFolder = (j, f) => managesJournal(S.me.role, j.id) && (f.kind === 'custom' || ['owner', 'admin'].includes(S.me.role));
+
+// ---------- small dialogs ----------
+function flAsk(title, label, value = '') {
+  return new Promise((resolve) => {
+    const input = h('input', { type: 'text', value, dir: 'auto' });
+    let done = false;
+    const finish = (v) => { if (done) return; done = true; close(true); resolve(v); };
+    const ok = h('button', { class: 'btn primary', onclick: () => { const v = input.value.trim(); if (v) finish(v); else input.focus(); } }, 'حفظ');
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') ok.click(); });
+    const close = openModal(title, h('label', { class: 'f' }, h('span', {}, label), input),
+      [h('button', { class: 'btn ghost', onclick: () => finish(null) }, 'إلغاء'), ok],
+      { beforeClose: () => { if (!done) { done = true; resolve(null); } return true; } });
+    document.querySelector('.modal-wrap:last-child .modal')?.classList.add('small');
+    setTimeout(() => { input.focus(); input.select(); }, 0);
+  });
+}
+
+// ---------- actions ----------
+async function flLatestVersion(file) {
+  if (file.latest) return file.latest;
+  const rows = await api.select('file_versions', `file_id=eq.${file.id}&order=version.desc&limit=1`);
+  if (!rows.length) throw new api.ApiError('لا توجد نسخة مرفوعة لهذا الملف');
+  return rows[0];
+}
+async function flOpen(file, download = false) {
+  const w = download ? null : window.open('', '_blank');
+  try {
+    const v = await flLatestVersion(file);
+    const url = await api.signedUrl(FL_BUCKET, v.path, { download: download ? file.name : null });
+    if (w) w.location = url;
+    else { const a = h('a', { href: url, download: file.name }); document.body.append(a); a.click(); a.remove(); }
+  } catch (e) { w?.close(); toast(e.message, 'err'); }
+}
+
+function flObjectPath(jid, name) {
+  const ext = (name.match(/\.([A-Za-z0-9]{1,8})$/) || [])[1];
+  return `${jid}/${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}${ext ? `.${ext.toLowerCase()}` : ''}`;
+}
+
+// Uploads go to the folder; a file with the same name becomes a new version of it.
+async function flUpload(j, folder, fileList, panel, redraw) {
+  const list = [...fileList];
+  if (!list.length) return;
+  for (const file of list) {
+    const bar = h('span', { class: 'up-bar' });
+    const status = h('small', { class: 'muted' }, 'في الانتظار…');
+    const item = h('div', { class: 'up-item' }, h('span', { class: 'up-name' }, icon('file', 15), file.name), h('span', { class: 'up-track' }, bar), status);
+    if (!panel.querySelector('.up-head')) {
+      panel.prepend(h('div', { class: 'up-head' }, h('b', {}, 'رفع الملفات'),
+        h('button', { class: 'btn ghost sm icon-btn', title: 'إغلاق', 'aria-label': 'إغلاق', onclick: () => { panel.replaceChildren(); panel.hidden = true; } }, icon('x', 14))));
+    }
+    panel.append(item); panel.hidden = false;
+    try {
+      if (file.size > api.MAX_FILE_MB * 1024 * 1024) throw new api.ApiError(`أكبر من ${api.MAX_FILE_MB} ميغابايت`);
+      status.textContent = 'جارٍ الرفع…';
+      const path = flObjectPath(j.id, file.name);
+      await api.uploadPrivate(FL_BUCKET, path, file, (p) => { bar.style.width = `${Math.round(p * 100)}%`; status.textContent = `${Math.round(p * 100)}%`; });
+      let row = flFilesIn(folder.id).find((f) => f.name === file.name);
+      if (!row) {
+        row = await api.insertRow('files', { folder_id: folder.id, journal_id: j.id, name: file.name, issue_id: folder.issue_id ?? null });
+        flCache.files.push(row);
+      }
+      const v = await api.insertRow('file_versions', { file_id: row.id, path, size: file.size, mime: file.type || null });
+      item.classList.add('done'); status.textContent = v.version > 1 ? `تم · نسخة ${v.version}` : 'تم';
+    } catch (e) {
+      item.classList.add('fail'); status.textContent = e.message;
+    }
+  }
+  await flLoad(j.id).catch(() => {});
+  redraw();
+  setTimeout(() => { for (const el of panel.querySelectorAll('.up-item.done')) el.remove(); if (!panel.querySelector('.up-item')) { panel.replaceChildren(); panel.hidden = true; } }, 5000);
+}
+
+async function flNewFolder(j, parent, redraw) {
+  const name = await flAsk('مجلد جديد', `داخل «${flFolderLabel(parent)}»`);
+  if (!name) return;
+  try {
+    const row = await api.insertRow('folders', { journal_id: j.id, parent_id: parent.id, name });
+    flCache.folders.push(row); S.fileFolder = row.id; redraw();
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+async function flRename(kind, row, redraw) {
+  const name = await flAsk(kind === 'file' ? 'إعادة تسمية الملف' : 'إعادة تسمية المجلد', 'الاسم الجديد', row.name);
+  if (!name || name === row.name) return;
+  try {
+    Object.assign(row, await api.updateRows(kind === 'file' ? 'files' : 'folders', { id: row.id }, { name }));
+    toast('تمت إعادة التسمية'); redraw();
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+async function flTrash(kind, row, redraw) {
+  const what = kind === 'file' ? `الملف «${row.name}»` : `المجلد «${row.name}» وكل ما بداخله (${flCount(row.id)} ملف)`;
+  if (!window.confirm(`نقل ${what} إلى السلة؟\nيمكن للمالك وحده استعادته.`)) return;
+  try {
+    await api.rpc('move_to_trash', { p_kind: kind, p_id: row.id });
+    if (kind === 'folder' && S.fileFolder === row.id) S.fileFolder = row.parent_id;
+    await flLoad(flCache.jid); toast('نُقل إلى السلة'); redraw();
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+// ---------- view ----------
+function flTree(j, current, redraw) {
+  const open = new Set(flPath(current).map((f) => f.id));
+  const node = (f, depth) => {
+    const kids = flChildren(f.id);
+    const isOpen = open.has(f.id) || depth === 0;
+    return h('li', {},
+      h('button', {
+        class: `tree-item ${f.id === current ? 'on' : ''} k-${f.kind}`, style: `padding-inline-start:${8 + depth * 14}px`,
+        onclick: () => { S.fileFolder = f.id; redraw(); },
+        ondragover: (e) => { if (e.dataTransfer?.types?.includes('Files')) { e.preventDefault(); e.currentTarget.classList.add('drop'); } },
+        ondragleave: (e) => e.currentTarget.classList.remove('drop'),
+        ondrop: (e) => { e.preventDefault(); e.currentTarget.classList.remove('drop'); S.fileFolder = f.id; flDropTo(j, f, e.dataTransfer.files, redraw); },
+      }, kids.length ? h('span', { class: `caret ${isOpen ? 'open' : ''}` }, icon('chevron', 12)) : h('span', { class: 'caret' }),
+      icon('folder', 15), h('span', { class: 'tl' }, flFolderLabel(f)),
+      flCount(f.id) ? h('small', { class: 'tree-n' }, flCount(f.id)) : null),
+      kids.length && isOpen ? h('ul', {}, kids.map((c) => node(c, depth + 1))) : null);
+  };
+  return h('nav', { class: 'files-tree', 'aria-label': 'المجلدات' }, h('ul', {}, flChildren(null).map((f) => node(f, 0))));
+}
+
+let flPanel = null;
+function flDropTo(j, folder, files, redraw) {
+  if (!managesJournal(S.me.role, j.id)) { toast('ليس لديك صلاحية للرفع إلى هذه المجلة', 'err'); return; }
+  flUpload(j, folder, files, flPanel, redraw);
+}
+
+function flMain(j, current, redraw) {
+  const folder = flFolder(current);
+  const can = managesJournal(S.me.role, j.id);
+  const input = h('input', { type: 'file', multiple: true, hidden: true, onchange: () => { flDropTo(j, folder, input.files, redraw); input.value = ''; } });
+  const crumbs = h('div', { class: 'crumbs' },
+    h('button', { class: 'crumb', onclick: () => { S.fileFolder = null; redraw(); } }, `ملفات ${j.name}`),
+    flPath(current).map((f) => [h('span', { class: 'sep' }, '›'), h('button', { class: 'crumb', onclick: () => { S.fileFolder = f.id; redraw(); } }, flFolderLabel(f))]));
+  const tools = h('div', { class: 'files-tools' },
+    can && folder ? h('button', { class: 'btn', onclick: () => flNewFolder(j, folder, redraw) }, icon('folderPlus', 16), 'مجلد جديد') : null,
+    can && folder ? h('button', { class: 'btn primary', onclick: () => input.click() }, icon('upload', 16), 'رفع ملفات') : null,
+    input);
+
+  const subs = flChildren(current); const files = folder ? flFilesIn(folder.id) : [];
+  const act = (ic, label, fn, cls = '') => h('button', { class: `btn ghost sm icon-btn ${cls}`, title: label, 'aria-label': label, onclick: (e) => { e.stopPropagation(); fn(); } }, icon(ic, 15));
+  const rows = [
+    ...subs.map((f) => h('tr', { class: 'clickable', ondblclick: () => { S.fileFolder = f.id; redraw(); }, onclick: () => { S.fileFolder = f.id; redraw(); } },
+      h('td', {}, h('span', { class: `f-name k-${f.kind}` }, icon('folder', 17), flFolderLabel(f))),
+      h('td', { class: 'muted' }, `${flCount(f.id)} ملف`),
+      h('td', {}), h('td', {}),
+      h('td', { class: 'f-act' }, flCanEditFolder(j, f) ? [act('pencil', 'إعادة تسمية', () => flRename('folder', f, redraw)), act('trash', 'نقل إلى السلة', () => flTrash('folder', f, redraw), 'danger')] : null))),
+    ...files.map((f) => h('tr', { class: 'clickable', onclick: () => flOpen(f) },
+      h('td', {}, h('span', { class: 'f-name' }, icon('file', 17), f.name, f.current_version > 1 ? h('small', { class: 'chip ver' }, `نسخة ${f.current_version}`) : null)),
+      h('td', { class: 'muted' }, flSize(f.size)),
+      h('td', { class: 'muted' }, flDate(f.updated_at || f.created_at)),
+      h('td', { class: 'muted' }, userName(f.updated_by || f.created_by) || ''),
+      h('td', { class: 'f-act' },
+        act('eye', 'فتح', () => flOpen(f)), act('download', 'تنزيل', () => flOpen(f, true)),
+        can ? [act('pencil', 'إعادة تسمية', () => flRename('file', f, redraw)), act('trash', 'نقل إلى السلة', () => flTrash('file', f, redraw), 'danger')] : null))),
+  ];
+
+  const body = rows.length
+    ? h('div', { class: 'grid-wrap flat' }, h('table', { class: 'grid simple files-table' },
+      h('thead', {}, h('tr', {}, ['الاسم', 'الحجم', 'آخر تعديل', 'بواسطة', ''].map((t) => h('th', {}, t)))),
+      h('tbody', {}, rows)))
+    : h('div', { class: 'empty-state' }, h('p', { class: 'muted' }, folder ? 'هذا المجلد فارغ.' : 'لا توجد مجلدات.'));
+
+  const zone = h('div', { class: 'files-main' }, crumbs, tools, body,
+    can && folder ? h('p', { class: 'drop-hint muted' }, icon('upload', 15), `اسحب الملفات وأفلتها هنا للرفع إلى «${folder.name}». الحد ${api.MAX_FILE_MB} ميغابايت للملف. الملف بنفس الاسم يُحفظ نسخة جديدة.`) : null,
+    !folder ? h('p', { class: 'muted' }, 'اختر مجلداً لعرض ملفاته أو للرفع إليه.') : null);
+  if (can && folder) {
+    zone.addEventListener('dragover', (e) => { if (e.dataTransfer?.types?.includes('Files')) { e.preventDefault(); zone.classList.add('drag'); } });
+    zone.addEventListener('dragleave', (e) => { if (!zone.contains(e.relatedTarget)) zone.classList.remove('drag'); });
+    zone.addEventListener('drop', (e) => { e.preventDefault(); zone.classList.remove('drag'); flDropTo(j, folder, e.dataTransfer.files, redraw); });
+  }
+  return zone;
+}
+
+// Files tab of a journal. Renders into its own container and redraws itself.
+function filesTab(j) {
+  const box = h('div', { class: 'files-page' });
+  if (!flPanel) flPanel = h('div', { class: 'upload-panel', hidden: true });
+  const redraw = () => {
+    if (!flEnsure(j.id, redraw)) { box.replaceChildren(h('p', { class: 'muted pad' }, 'جارٍ تحميل الملفات…')); return; }
+    if (flCache.error) { box.replaceChildren(h('p', { class: 'form-err pad' }, flCache.error)); return; }
+    if (S.fileFolderIssue) { S.fileFolder = flIssueFolder(S.fileFolderIssue)?.id ?? S.fileFolder; S.fileFolderIssue = null; }
+    if (S.fileFolder != null && !flFolder(S.fileFolder)) S.fileFolder = null;
+    box.replaceChildren(flTree(j, S.fileFolder, redraw), flMain(j, S.fileFolder, redraw), flPanel);
+  };
+  redraw();
+  return box;
+}
+
 // «مجلتي»: a journal's own space — overview, issues (one page per issue), books & translations, people.
 
 
 
-const TABS = [['overview', 'نظرة عامة', 'chart'], ['issues', 'الأعداد', 'journal'], ['books', 'الكتب والمترجمات', 'book'], ['people', 'الأشخاص', 'users']];
+
+const TABS = [['overview', 'نظرة عامة', 'chart'], ['issues', 'الأعداد', 'journal'], ['books', 'الكتب والمترجمات', 'book'], ['people', 'الأشخاص', 'users'], ['files', 'الملفات', 'folder']];
 const PEOPLE_LINKS = [
   { key: 'researchers', label: 'باحث', via: 'research_researchers', self: 'research_id', other: 'person_id' },
   { key: 'translators', label: 'مترجم', via: 'research_translators', self: 'research_id', other: 'person_id' },
@@ -1790,7 +2108,7 @@ function header(j) {
     : h('span', { class: `${chipClass('journals', j.id)} big` }, j.name);
   return h('div', { class: 'toolbar journal-bar' },
     h('h1', {}, icon('journal', 22), title),
-    h('nav', { class: 'tabs', role: 'tablist' }, TABS.map(([k, label, ic]) => h('button', {
+    h('nav', { class: 'tabs', role: 'tablist' }, TABS.filter(([k]) => k !== 'files' || managesJournal(S.me.role, j.id)).map(([k, label, ic]) => h('button', {
       class: `tab ${(S.journalTab || 'overview') === k && !S.issueId ? 'on' : ''}`, role: 'tab',
       onclick: () => go({ journalTab: k, issueId: null }),
     }, icon(ic, 16), label))));
@@ -1877,7 +2195,9 @@ function issuePage(j, issue) {
             ? h('button', { class: 'btn primary', onclick: () => openRecord('researches', null, 'title', { issue_id: issue.id, issue_order: rows.length + 1 }) }, icon('plus', 16), 'مقالة جديدة في هذا العدد') : null,
           canEdit ? h('button', { class: 'btn', onclick: () => openRecord('issues', issue) }, 'تعديل بيانات العدد') : null))),
     h('section', { class: 'card' }, h('h3', {}, 'المقالات حسب ترتيبها في العدد'), articleTable(issue, rows)),
-    h('section', { class: 'card muted-card' }, h('h3', {}, 'ملفات العدد'), h('p', { class: 'muted' }, 'رفع الملفات ومجلدات العدد تأتي في دفعة الملفات.')));
+    managesJournal(S.me.role, j.id) ? h('section', { class: 'card' }, h('h3', {}, 'ملفات العدد'),
+      h('p', { class: 'muted' }, 'لكل عدد مجلد خاص داخل «2.2 الأبحاث المنشورة». ارفع إليه المقالات والغلاف وملفات الإخراج.'),
+      h('button', { class: 'btn', onclick: () => go({ journalTab: 'files', issueId: null, fileFolderIssue: issue.id }) }, icon('folder', 16), 'فتح مجلد العدد')) : null);
 }
 
 // ---------- books & translations ----------
@@ -1939,6 +2259,7 @@ function renderJournal(main) {
   else if (tab === 'issues') body = issuesTab(j);
   else if (tab === 'books') body = booksTab(j);
   else if (tab === 'people') body = peopleTab(j);
+  else if (tab === 'files' && managesJournal(S.me.role, j.id)) body = filesTab(j);
   else body = overview(j);
   main.replaceChildren(header(j), h('div', { class: 'journal-scroll' }, body));
 }

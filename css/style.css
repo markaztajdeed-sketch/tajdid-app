@@ -481,3 +481,50 @@ table.grid.simple { width: 100%; table-layout: auto; }
 .prod-issue ul { list-style: none; margin: 4px 0 0; padding: 0; display: grid; }
 .prod-issue li { display: flex; justify-content: space-between; gap: 10px; padding: 5px 2px; align-items: baseline; }
 .prod-issue li small { white-space: nowrap; }
+
+/* files */
+.files-page { display: grid; grid-template-columns: minmax(220px, 300px) 1fr; gap: 16px; padding: 18px; align-items: start; min-height: 100%; }
+.files-tree { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 8px 4px; position: sticky; top: 0; max-height: calc(100vh - 140px); overflow: auto; }
+.files-tree ul { list-style: none; margin: 0; padding: 0; }
+.tree-item { display: flex; align-items: center; gap: 6px; width: 100%; border: 1px dashed transparent; background: none; padding: 5px 8px; border-radius: 7px; cursor: pointer; color: var(--text); text-align: start; font: inherit; font-size: 13.5px; }
+.tree-item:hover { background: var(--surface-2); }
+.tree-item.on { background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
+.tree-item.drop { border-color: var(--accent); background: var(--accent-soft); }
+.tree-item .tl { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-item .caret { width: 12px; display: inline-flex; color: var(--muted); }
+.tree-item .caret.open .icon { transform: rotate(-90deg); }
+.tree-item.k-fixed .icon:not(.caret .icon) { color: var(--gold-ink); }
+.tree-item.k-issue .icon:not(.caret .icon) { color: var(--accent); }
+.tree-n { color: var(--muted); font-size: 11px; }
+.files-main { display: grid; gap: 12px; align-content: start; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px; min-height: 320px; transition: border-color .15s, background .15s; }
+.files-main.drag { border: 2px dashed var(--accent); background: var(--accent-soft); }
+.crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 14px; }
+.crumb { background: none; border: 0; color: var(--accent); cursor: pointer; padding: 2px 4px; border-radius: 5px; font: inherit; }
+.crumb:last-child { color: var(--text); font-weight: 700; }
+.crumbs .sep { color: var(--muted); }
+.files-tools { display: flex; gap: 8px; flex-wrap: wrap; }
+.files-table .f-name { display: inline-flex; align-items: center; gap: 8px; }
+.files-table .f-name.k-fixed .icon { color: var(--gold-ink); }
+.files-table .f-name.k-issue .icon, .files-table .f-name.k-custom .icon { color: var(--accent); }
+.files-table .f-act { white-space: nowrap; text-align: end; width: 1%; }
+.files-table tr .f-act .btn { opacity: .55; }
+.files-table tr:hover .f-act .btn { opacity: 1; }
+.btn.danger:hover { color: var(--danger); background: var(--danger-soft); }
+.chip.ver { font-size: 11px; padding: 0 7px; }
+.drop-hint { display: flex; align-items: center; gap: 6px; font-size: 12.5px; border-top: 1px dashed var(--border); padding-top: 10px; margin: 0; }
+.upload-panel { position: fixed; bottom: 18px; left: 18px; width: min(380px, calc(100vw - 36px)); background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); padding: 10px; display: grid; gap: 8px; z-index: 60; max-height: 50vh; overflow: auto; }
+.upload-panel[hidden] { display: none; }
+.up-head { display: flex; align-items: center; justify-content: space-between; font-size: 13px; }
+.up-item { display: grid; grid-template-columns: 1fr; gap: 4px; font-size: 13px; }
+.up-name { display: flex; align-items: center; gap: 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.up-track { height: 5px; background: var(--surface-2); border-radius: 3px; overflow: hidden; }
+.up-bar { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+.up-item.done .up-bar { background: #2e9d5b; width: 100%; }
+.up-item.fail .up-bar { background: var(--danger); width: 100%; }
+.up-item.fail small { color: var(--danger); }
+.modal.small { max-width: 440px; }
+@media (max-width: 760px) {
+  .files-page { grid-template-columns: 1fr; padding: 12px; }
+  .files-tree { position: static; max-height: 260px; }
+  .files-table th:nth-child(3), .files-table td:nth-child(3), .files-table th:nth-child(4), .files-table td:nth-child(4) { display: none; }
+}

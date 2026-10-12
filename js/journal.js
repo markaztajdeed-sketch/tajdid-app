@@ -4,8 +4,9 @@ import {
   S, h, displayOf, chipClass, openRecord, renderShell, lsGet, lsSet, linkedIds, subtitleOf,
 } from './app.js';
 import { canInsert, canEditRow, managesJournal } from './schema.js';
+import { filesTab } from './files.js';
 
-const TABS = [['overview', 'نظرة عامة', 'chart'], ['issues', 'الأعداد', 'journal'], ['books', 'الكتب والمترجمات', 'book'], ['people', 'الأشخاص', 'users']];
+const TABS = [['overview', 'نظرة عامة', 'chart'], ['issues', 'الأعداد', 'journal'], ['books', 'الكتب والمترجمات', 'book'], ['people', 'الأشخاص', 'users'], ['files', 'الملفات', 'folder']];
 const PEOPLE_LINKS = [
   { key: 'researchers', label: 'باحث', via: 'research_researchers', self: 'research_id', other: 'person_id' },
   { key: 'translators', label: 'مترجم', via: 'research_translators', self: 'research_id', other: 'person_id' },
@@ -53,7 +54,7 @@ function header(j) {
     : h('span', { class: `${chipClass('journals', j.id)} big` }, j.name);
   return h('div', { class: 'toolbar journal-bar' },
     h('h1', {}, icon('journal', 22), title),
-    h('nav', { class: 'tabs', role: 'tablist' }, TABS.map(([k, label, ic]) => h('button', {
+    h('nav', { class: 'tabs', role: 'tablist' }, TABS.filter(([k]) => k !== 'files' || managesJournal(S.me.role, j.id)).map(([k, label, ic]) => h('button', {
       class: `tab ${(S.journalTab || 'overview') === k && !S.issueId ? 'on' : ''}`, role: 'tab',
       onclick: () => go({ journalTab: k, issueId: null }),
     }, icon(ic, 16), label))));
@@ -140,7 +141,9 @@ function issuePage(j, issue) {
             ? h('button', { class: 'btn primary', onclick: () => openRecord('researches', null, 'title', { issue_id: issue.id, issue_order: rows.length + 1 }) }, icon('plus', 16), 'مقالة جديدة في هذا العدد') : null,
           canEdit ? h('button', { class: 'btn', onclick: () => openRecord('issues', issue) }, 'تعديل بيانات العدد') : null))),
     h('section', { class: 'card' }, h('h3', {}, 'المقالات حسب ترتيبها في العدد'), articleTable(issue, rows)),
-    h('section', { class: 'card muted-card' }, h('h3', {}, 'ملفات العدد'), h('p', { class: 'muted' }, 'رفع الملفات ومجلدات العدد تأتي في دفعة الملفات.')));
+    managesJournal(S.me.role, j.id) ? h('section', { class: 'card' }, h('h3', {}, 'ملفات العدد'),
+      h('p', { class: 'muted' }, 'لكل عدد مجلد خاص داخل «2.2 الأبحاث المنشورة». ارفع إليه المقالات والغلاف وملفات الإخراج.'),
+      h('button', { class: 'btn', onclick: () => go({ journalTab: 'files', issueId: null, fileFolderIssue: issue.id }) }, icon('folder', 16), 'فتح مجلد العدد')) : null);
 }
 
 // ---------- books & translations ----------
@@ -202,6 +205,7 @@ export function renderJournal(main) {
   else if (tab === 'issues') body = issuesTab(j);
   else if (tab === 'books') body = booksTab(j);
   else if (tab === 'people') body = peopleTab(j);
+  else if (tab === 'files' && managesJournal(S.me.role, j.id)) body = filesTab(j);
   else body = overview(j);
   main.replaceChildren(header(j), h('div', { class: 'journal-scroll' }, body));
 }
