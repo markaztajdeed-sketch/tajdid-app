@@ -623,6 +623,7 @@ const fieldsFor = (role, table) => TABLES[table].fields.filter((f) => (!f.staffO
 
 
 
+
 // ============ state ============
 const S = {
   data: {},          // table -> rows
@@ -916,7 +917,7 @@ async function boot() {
     await loadAll();
     S.me = S.byId.profiles.get(S.me.id);
     S.view = lsGet('tajdid_view', 'researches');
-    if ((!TABLES[S.view] && !['stats', 'users', 'profile', 'journal', 'trash'].includes(S.view)) || (S.view === 'trash' && S.me.role !== 'owner') || (TABLES[S.view] && !isTableVisible(S.me.role, S.view))) S.view = 'researches';
+    if ((!TABLES[S.view] && !['stats', 'users', 'profile', 'journal', 'trash', 'books'].includes(S.view)) || (S.view === 'trash' && S.me.role !== 'owner') || (S.view === 'books' && !booksNavVisible()) || (TABLES[S.view] && !isTableVisible(S.me.role, S.view))) S.view = 'researches';
     renderShell();
   } catch (e) {
     toast(e.message, 'err');
@@ -1018,7 +1019,9 @@ function renderShell() {
       h('div', {}, h('img', { class: 'callig', src: 'assets/calligraphy-light.png', alt: 'مركز تجديد للفكر والثقافة' }), h('small', {}, 'قاعدة بيانات الأبحاث'))),
     h('nav', {},
       h('div', { class: 'nav-title' }, 'الجداول'), groups.main,
-      journalNavVisible() ? [h('div', { class: 'nav-title' }, 'مجلتي'), navItem('journal', 'journal', S.me.role === 'editor' ? 'مجلتي' : 'المجلات والأعداد')] : null,
+      journalNavVisible() || booksNavVisible() ? h('div', { class: 'nav-title' }, S.me.role === 'editor' ? 'مجلتي' : 'المنشورات') : null,
+      journalNavVisible() ? navItem('journal', 'journal', S.me.role === 'editor' ? 'مجلتي' : 'المجلات والأعداد') : null,
+      booksNavVisible() ? navItem('books', 'book', CENTER_LIBRARY, (S.data.researches || []).filter(isBook).length) : null,
       ['owner', 'admin', 'editor'].includes(role) ? [h('div', { class: 'nav-title' }, 'المتابعة'), navItem('stats', 'chart', 'الإحصائيات')] : null,
       h('div', { class: 'nav-title' }, 'القوائم'), groups.lists,
       role === 'owner' ? [h('div', { class: 'nav-title' }, 'الإدارة'), navItem('users', 'users', 'المستخدمون', pendingUsers ? `${pendingUsers} جديد` : null), navItem('trash', 'trash', 'السلة')] : null),
@@ -1041,6 +1044,7 @@ function renderShell() {
   else if (S.view === 'stats') renderStats(main);
   else if (S.view === 'users') renderUsers(main);
   else if (S.view === 'trash') renderTrash(main);
+  else if (S.view === 'books') renderBooks(main);
   else renderGrid(main, S.view);
 }
 
@@ -1842,7 +1846,8 @@ function researchExtSections({ row, isNew, pubDefaults, canEditBase, translators
       rxField('العنوان الأصلي', rxInput('text', st.trans.original_title, (v) => { st.trans.original_title = v; changed(); }, !canEditBase), true),
       rxField('اللغة الأصلية', rxSelect((S.data.languages || []).map((l) => [l.id, l.name]), st.trans.original_language_id,
         (v) => { st.trans.original_language_id = rxNum(v); changed(); }, !canEditBase))));
-  const transVisible = () => translators().length > 0;
+  // with a translator, or for a translated book (so its original title can be entered first)
+  const transVisible = () => translators().length > 0 || st.pub?.kind === 'translated_book';
 
   // ---- «الاستلام» ----
   const subBody = h('div', {});
@@ -2265,30 +2270,33 @@ function renderProfile(main) {
 
 
 const FL_BUCKET = 'journal-files';
-const flCache = { jid: null, folders: [], files: [], loading: null, error: null };
+// jid = a journal id, or null for the «إصدارات المركز» library (folders and files without a journal)
+const flCache = { key: undefined, jid: null, folders: [], files: [], loading: null, error: null };
+const flKey = (jid) => (jid == null ? 'center' : String(jid));
+const flScopeQs = (jid) => (jid == null ? 'journal_id=is.null' : `journal_id=eq.${jid}`);
 
 // ---------- data ----------
 async function flLoad(jid) {
   const [folders, files] = await Promise.all([
-    api.select('folders', `journal_id=eq.${jid}&deleted_at=is.null&order=sort,id`),
-    api.select('files', `journal_id=eq.${jid}&deleted_at=is.null&order=name`, '*,file_versions(id,version,size,mime,path,note,created_at,created_by)'),
+    api.select('folders', `${flScopeQs(jid)}&deleted_at=is.null&order=sort,id`),
+    api.select('files', `${flScopeQs(jid)}&deleted_at=is.null&order=name`, '*,file_versions(id,version,size,mime,path,note,created_at,created_by)'),
   ]);
   for (const f of files) {
     const vs = (f.file_versions || []).sort((a, b) => b.version - a.version);
     f.versions = vs; f.latest = vs[0] || null; f.size = f.latest?.size ?? null; delete f.file_versions;
   }
-  Object.assign(flCache, { jid, folders, files, error: null });
+  Object.assign(flCache, { key: flKey(jid), jid, folders, files, error: null });
 }
 function flEnsure(jid, redraw) {
-  if (flCache.jid === jid && !flCache.loading) return true;
+  if (flCache.key === flKey(jid) && !flCache.loading) return true;
   if (!flCache.loading) {
     flCache.loading = flLoad(jid)
-      .catch((e) => { flCache.jid = jid; flCache.folders = []; flCache.files = []; flCache.error = e.message; })
+      .catch((e) => { Object.assign(flCache, { key: flKey(jid), jid, folders: [], files: [], error: e.message }); })
       .finally(() => { flCache.loading = null; redraw(); });
   }
   return false;
 }
-function flReset() { flCache.jid = null; }
+function flReset() { flCache.key = undefined; }
 
 const FL_RANK = { fixed: 0, issue: 1, book: 2, custom: 3 };
 const flChildren = (pid) => flCache.folders.filter((f) => (f.parent_id ?? null) === (pid ?? null))
@@ -2307,7 +2315,8 @@ function flCount(id) {
   for (const c of flChildren(id)) n += flCount(c.id);
   return n;
 }
-const flFolderLabel = (f) => (f.code ? `${f.code} ${f.name}` : f.name);
+// Mind-map numbering is shown for journal folders only (the library uses internal codes C, C.1…)
+const flFolderLabel = (f) => (f.code && /^\d/.test(f.code) ? `${f.code} ${f.name}` : f.name);
 const flIssueFolder = (issueId) => flCache.folders.find((f) => f.issue_id === issueId && f.kind === 'issue');
 
 function flSize(n) {
@@ -2359,9 +2368,10 @@ async function flOpen(file, download = false) {
   } catch (e) { w?.close(); toast(e.message, 'err'); }
 }
 
+// Storage path: {journal_id}/… for journals, center/… for the library
 function flObjectPath(jid, name) {
   const ext = (name.match(/\.([A-Za-z0-9]{1,8})$/) || [])[1];
-  return `${jid}/${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}${ext ? `.${ext.toLowerCase()}` : ''}`;
+  return `${jid == null ? 'center' : jid}/${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}${ext ? `.${ext.toLowerCase()}` : ''}`;
 }
 
 // Uploads go to the folder; a file with the same name becomes a new version of it.
@@ -2384,7 +2394,7 @@ async function flUpload(j, folder, fileList, panel, redraw) {
       await api.uploadPrivate(FL_BUCKET, path, file, (p) => { bar.style.width = `${Math.round(p * 100)}%`; status.textContent = `${Math.round(p * 100)}%`; });
       let row = flFilesIn(folder.id).find((f) => f.name === file.name);
       if (!row) {
-        row = await api.insertRow('files', { folder_id: folder.id, journal_id: j.id, name: file.name, issue_id: folder.issue_id ?? null });
+        row = await api.insertRow('files', { folder_id: folder.id, journal_id: j.id, name: file.name, issue_id: folder.issue_id ?? null, research_id: folder.research_id ?? null });
         flCache.files.push(row);
       }
       const v = await api.insertRow('file_versions', { file_id: row.id, path, size: file.size, mime: file.type || null, note: flStageNote(row.research_id) });
@@ -2438,7 +2448,7 @@ async function flAddVersion(file, blob, panel, extra = {}) {
 
 function flDetails(j, file, redraw) {
   const can = managesJournal(S.me.role, j.id);
-  const res = (S.data.researches || []).filter((r) => researchJournal(r) === j.id || r.id === file.research_id)
+  const res = (S.data.researches || []).filter((r) => (j.id == null ? isBook(r) : researchJournal(r) === j.id) || r.id === file.research_id)
     .sort((a, b) => a.title.localeCompare(b.title, 'ar'));
   const persons = [...(S.data.persons || [])].sort((a, b) => a.name.localeCompare(b.name, 'ar'));
   const sel = (rows, val, label) => h('select', { disabled: !can },
@@ -2623,28 +2633,63 @@ function linkedFilesSection(table, row) {
   if (!col) return null;
   const list = h('div', { class: 'linked-files' }, h('p', { class: 'muted' }, 'جارٍ التحميل…'));
   const sec = h('section', { class: 'form-section' }, h('h4', {}, 'الملفات المرتبطة'), list);
+  // Where uploads go: an article → its issue folder; a book → its folder in «إصدارات المركز» (owner & admin)
   const issue = table === 'researches' && row.pub?.kind === 'article' ? S.byId.issues?.get(row.pub.issue_id) : null;
-  const canUpload = issue && managesJournal(S.me.role, issue.journal_id);
+  const book = table === 'researches' && isBook(row);
+  const target = issue && managesJournal(S.me.role, issue.journal_id)
+    ? { jid: issue.journal_id, qs: `issue_id=eq.${issue.id}&kind=eq.issue&deleted_at=is.null`, extra: { issue_id: issue.id }, label: 'رفع ملف لهذه المقالة', empty: 'لا توجد ملفات مرتبطة بعد. ارفع ملف المقالة هنا، فيُحفظ في مجلد عددها ويرتبط بها.' }
+    : (book && ['owner', 'admin'].includes(S.me.role)
+      ? { jid: null, qs: `research_id=eq.${row.id}&kind=eq.book&deleted_at=is.null`, extra: {}, label: 'رفع ملف للكتاب', empty: `لا توجد ملفات بعد. ما يُرفع هنا يُحفظ في مجلد الكتاب في «${CENTER_LIBRARY}».` }
+      : null);
   const status = h('small', { class: 'muted' });
   const input = h('input', { type: 'file', multiple: true, hidden: true });
-  input.addEventListener('input', (e) => e.stopPropagation());
+  const coverInput = h('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp', hidden: true });
+  for (const el of [input, coverInput]) el.addEventListener('input', (e) => e.stopPropagation());
+  let files = [];
+
+  const findFolder = async () => {
+    const [folder] = await api.select('folders', target.qs);
+    if (!folder) throw new api.ApiError(book ? 'لا يوجد مجلد لهذا الكتاب بعد. احفظ نوع النشر أولاً.' : 'لا يوجد مجلد لهذا العدد');
+    return folder;
+  };
+  const uploadOne = async (folder, file, name = file.name) => {
+    const path = flObjectPath(target.jid, name);
+    await api.uploadPrivate(FL_BUCKET, path, file, (p) => { status.textContent = `${name}: ${Math.round(p * 100)}%`; });
+    const [same] = await api.select('files', `folder_id=eq.${folder.id}&name=eq.${encodeURIComponent(name)}&deleted_at=is.null`);
+    const f = same || await api.insertRow('files', { folder_id: folder.id, journal_id: target.jid, name, research_id: row.id, ...target.extra });
+    if (same && !same.research_id) await api.updateRows('files', { id: same.id }, { research_id: row.id });
+    await api.insertRow('file_versions', { file_id: f.id, path, size: file.size, mime: file.type || null, note: flStageNote(row.id) });
+    return f;
+  };
+  // book cover: one image in the book folder flagged is_issue_cover (same flag as issue covers)
+  const setCover = async (f) => {
+    for (const o of files.filter((x) => x.is_issue_cover && x.id !== f.id && x.folder_id === f.folder_id)) await api.updateRows('files', { id: o.id }, { is_issue_cover: false });
+    await api.updateRows('files', { id: f.id }, { is_issue_cover: true });
+  };
 
   const draw = async () => {
-    let files = [];
     try { files = (await api.select('files', `${col}=eq.${row.id}&deleted_at=is.null&order=name`, FL_COLS)).map(flNormalize); } catch (e) { list.replaceChildren(h('p', { class: 'form-err' }, e.message)); return; }
     const act = (ic, label, fn) => h('button', { type: 'button', class: 'btn ghost sm icon-btn', title: label, 'aria-label': label, onclick: (e) => { e.stopPropagation(); fn(); } }, icon(ic, 15));
-    list.replaceChildren(
+    const where = (f) => [f.journal_id == null ? CENTER_LIBRARY : displayOf('journals', f.journal_id), f.folder?.name].filter(Boolean).join(' › ');
+    const isImg = (f) => /\.(jpe?g|png|webp|gif)$/i.test(f.name) || /^image\//.test(f.latest?.mime || '');
+    const parts = [
       files.length ? h('div', { class: 'grid-wrap flat' }, h('table', { class: 'grid simple files-table' },
         h('tbody', {}, files.map((f) => h('tr', { class: 'clickable', onclick: () => flOpen(f) },
           h('td', {}, h('span', { class: 'f-name' }, icon('file', 16), f.name,
+            f.is_issue_cover ? h('small', { class: 'chip ver' }, 'الغلاف') : null,
             f.current_version > 1 ? h('small', { class: 'chip ver' }, `نسخة ${f.current_version}`) : null),
-            h('small', { class: 'muted sub' }, [displayOf('journals', f.journal_id), f.folder?.name].filter(Boolean).join(' › '))),
+            h('small', { class: 'muted sub' }, where(f))),
           h('td', { class: 'muted' }, flSize(f.size)),
-          h('td', { class: 'f-act' }, act('eye', 'فتح', () => flOpen(f)), act('download', 'تنزيل', () => flOpen(f, true))))))))
-        : h('p', { class: 'muted' }, canUpload
-          ? 'لا توجد ملفات مرتبطة بعد. ارفع ملف المقالة هنا، فيُحفظ في مجلد عددها ويرتبط بها.'
-          : 'لا توجد ملفات مرتبطة. يمكن ربط أي ملف من نافذة «النسخ والتفاصيل» في تبويب الملفات.'),
-      canUpload ? h('div', { class: 'files-tools' }, h('button', { type: 'button', class: 'btn', onclick: () => input.click() }, icon('upload', 15), 'رفع ملف لهذه المقالة'), status, input) : '');
+          h('td', { class: 'f-act' },
+            book && target && isImg(f) && !f.is_issue_cover ? act('camera', 'تعيين غلافاً للكتاب', async () => { try { await setCover(f); toast('تم تعيين الغلاف'); flReset(); draw(); } catch (e) { toast(e.message, 'err'); } }) : null,
+            act('eye', 'فتح', () => flOpen(f)), act('download', 'تنزيل', () => flOpen(f, true))))))))
+        : h('p', { class: 'muted' }, target ? target.empty : 'لا توجد ملفات مرتبطة. يمكن ربط أي ملف من نافذة «النسخ والتفاصيل» في تبويب الملفات.'),
+      target ? h('div', { class: 'files-tools' },
+        h('button', { type: 'button', class: 'btn', onclick: () => input.click() }, icon('upload', 15), target.label),
+        book ? h('button', { type: 'button', class: 'btn', onclick: () => coverInput.click() }, icon('camera', 15), files.some((f) => f.is_issue_cover) ? 'تغيير الغلاف' : 'رفع غلاف') : null,
+        status, input, coverInput) : null,
+    ];
+    list.replaceChildren(...parts.filter(Boolean));
   };
 
   input.addEventListener('change', async (e) => {
@@ -2652,21 +2697,40 @@ function linkedFilesSection(table, row) {
     const chosen = [...input.files]; input.value = '';
     if (!chosen.length) return;
     try {
-      const [folder] = await api.select('folders', `issue_id=eq.${issue.id}&kind=eq.issue&deleted_at=is.null`);
-      if (!folder) throw new api.ApiError('لا يوجد مجلد لهذا العدد');
-      for (const file of chosen) {
-        const path = flObjectPath(issue.journal_id, file.name);
-        await api.uploadPrivate(FL_BUCKET, path, file, (p) => { status.textContent = `${file.name}: ${Math.round(p * 100)}%`; });
-        const [same] = await api.select('files', `folder_id=eq.${folder.id}&name=eq.${encodeURIComponent(file.name)}&deleted_at=is.null`);
-        const f = same || await api.insertRow('files', { folder_id: folder.id, journal_id: issue.journal_id, name: file.name, issue_id: issue.id, research_id: row.id });
-        if (same && !same.research_id) await api.updateRows('files', { id: same.id }, { research_id: row.id });
-        await api.insertRow('file_versions', { file_id: f.id, path, size: file.size, mime: file.type || null, note: flStageNote(row.id) });
-      }
+      const folder = await findFolder();
+      for (const file of chosen) await uploadOne(folder, file);
       status.textContent = 'تم الرفع'; flReset(); draw();
     } catch (e) { status.textContent = ''; toast(e.message, 'err'); }
   });
+  coverInput.addEventListener('change', async (e) => {
+    e.stopPropagation();
+    const file = coverInput.files[0]; coverInput.value = '';
+    if (!file) return;
+    try {
+      const folder = await findFolder();
+      const ext = (file.name.match(/\.(\w+)$/) || [, 'jpg'])[1].toLowerCase();
+      const f = await uploadOne(folder, file, `غلاف الكتاب.${ext}`);
+      files = (await api.select('files', `${col}=eq.${row.id}&deleted_at=is.null`, FL_COLS)).map(flNormalize);
+      await setCover(f);
+      status.textContent = 'تم تحديث الغلاف'; flReset(); draw();
+    } catch (err) { status.textContent = ''; toast(err.message, 'err'); }
+  });
   draw();
   return sec;
+}
+
+// Small cover image of a book (from its folder in the library), or the fallback
+function bookThumb(r, fallback) {
+  if (!['owner', 'admin'].includes(S.me.role)) return fallback;
+  if (!flEnsure(null, renderShell) || flCache.key !== flKey(null)) return fallback;
+  const folder = flCache.folders.find((f) => f.kind === 'book' && f.research_id === r.id);
+  if (!folder) return fallback;
+  const ids = new Set(flDescFolders(folder.id));
+  const cover = flCache.files.find((f) => ids.has(f.folder_id) && f.is_issue_cover && f.latest);
+  if (!cover) return fallback;
+  const img = h('img', { class: 'book-thumb', alt: '', title: `غلاف «${r.title}»` });
+  flThumbUrl(cover.latest).then((u) => { img.src = u; }).catch(() => img.replaceWith(fallback));
+  return img;
 }
 
 // Upload files for a research into a fixed folder of its journal (e.g. '2.1' الأبحاث غير المنشورة).
@@ -2698,7 +2762,7 @@ const flOpenFile = (f, download = false) => flOpen(f, download);
 // Small cover image for issue cards (falls back to the colored number)
 function issueThumb(issue, fallback) {
   if (!managesJournal(S.me.role, issue.journal_id)) return fallback;
-  if (!flEnsure(issue.journal_id, renderShell) || flCache.jid !== issue.journal_id) return fallback;
+  if (!flEnsure(issue.journal_id, renderShell) || flCache.key !== flKey(issue.journal_id)) return fallback;
   const folder = flIssueFolder(issue.id);
   if (!folder) return fallback;
   const ids = new Set(flDescFolders(folder.id));
@@ -2761,7 +2825,7 @@ function renderTrash(main) {
       h('tbody', {}, roots.map((it) => h('tr', {},
         h('td', {}, h('span', { class: 'f-name' }, icon(it.kind === 'folder' ? 'folder' : 'file', 16), it.row.name,
           it.kind === 'folder' ? h('small', { class: 'muted' }, ` (${inside(it.row.id)} ملف)`) : null)),
-        h('td', {}, h('span', { class: chipClass('journals', it.row.journal_id) }, displayOf('journals', it.row.journal_id))),
+        h('td', {}, it.row.journal_id == null ? h('span', { class: 'chip center' }, CENTER_LIBRARY) : h('span', { class: chipClass('journals', it.row.journal_id) }, displayOf('journals', it.row.journal_id))),
         h('td', { class: 'muted' }, where(it.kind === 'folder' ? it.row.parent_id : it.row.folder_id) || '—'),
         h('td', { class: 'muted' }, flDate(it.row.deleted_at)),
         h('td', { class: 'muted' }, it.row.deleted_by ? userName(it.row.deleted_by) : ''),
@@ -2794,7 +2858,7 @@ function flTree(j, current, redraw) {
 
 let flPanel = null;
 function flDropTo(j, folder, files, redraw) {
-  if (!managesJournal(S.me.role, j.id)) { toast('ليس لديك صلاحية للرفع إلى هذه المجلة', 'err'); return; }
+  if (!managesJournal(S.me.role, j.id)) { toast(j.id == null ? 'مكتبة إصدارات المركز للمالك والإدارة فقط' : 'ليس لديك صلاحية للرفع إلى هذه المجلة', 'err'); return; }
   flUpload(j, folder, files, flPanel, redraw);
 }
 
@@ -3239,6 +3303,73 @@ function submissionsTab(j) {
   };
   redraw();
   return box;
+}
+
+// «إصدارات المركز»: the center's books (center_publications with a book kind) and the library of their files.
+// Owner & admin only. Each book has an automatic folder (kind = book) in the library; files are stored under center/….
+// NOTE: all modules share one scope in the bundle — internal names here start with "bk".
+
+
+
+
+const BK_KINDS = ['authored_book', 'translated_book', 'extracted_book'];
+const BK_TABS = [['books', 'الكتب', 'book'], ['files', 'الملفات', 'folder']];
+const booksNavVisible = () => ['owner', 'admin'].includes(S.me?.role);
+
+const bkPeople = (r, via) => linkedIds({ via, self: 'research_id', other: 'person_id' }, r.id).map((id) => displayOf('persons', id));
+const bkTopics = (r) => linkedIds({ via: 'research_topics', self: 'research_id', other: 'topic_id' }, r.id);
+const bkBooks = () => (S.data.researches || []).filter(isBook);
+
+function bkNew(kind) {
+  // the research window has every section a book needs: kind, bibliographic data, translators,
+  // original title & language (shown for translations), topics; the book folder is created by the database
+  openRecord('researches', null, 'title', { pub: { kind: BK_KINDS.includes(kind) ? kind : 'authored_book' } });
+}
+
+function bkList(main) {
+  const kind = lsGet('tajdid_bk_kind', 'all');
+  const q = (S.bkSearch || '').trim().toLowerCase();
+  const all = bkBooks();
+  const rows = all.filter((r) => (kind === 'all' || r.pub.kind === kind)
+    && (!q || [r.title, ...bkPeople(r, 'research_researchers'), ...bkPeople(r, 'research_translators'), r.bib?.isbn].join(' ').toLowerCase().includes(q)))
+    .sort((a, b) => (b.year || 0) - (a.year || 0) || a.title.localeCompare(b.title, 'ar'));
+  const search = h('input', { type: 'search', placeholder: 'بحث في العنوان أو المؤلف أو ISBN…', value: S.bkSearch || '' });
+  search.addEventListener('input', () => { S.bkSearch = search.value; const pos = search.selectionStart; renderShell(); const el = document.querySelector('.bk-page .search input'); el?.focus(); el?.setSelectionRange(pos, pos); });
+  const count = (k) => (k === 'all' ? all.length : all.filter((r) => r.pub.kind === k).length);
+  const people = (r) => {
+    const authors = bkPeople(r, 'research_researchers'); const trs = bkPeople(r, 'research_translators');
+    return [authors.length ? authors.join('، ') : null, trs.length ? `ترجمة: ${trs.join('، ')}` : null].filter(Boolean);
+  };
+  return h('div', { class: 'journal-page bk-page' },
+    h('div', { class: 'section-head' },
+      h('nav', { class: 'sb-subtabs', 'aria-label': 'نوع الكتاب' }, [['all', 'الكل'], ...BK_KINDS.map((k) => [k, PUB_KINDS[k]])].map(([k, label]) => h('button', {
+        type: 'button', class: `view-tab ${k === kind ? 'on' : ''}`, onclick: () => { lsSet('tajdid_bk_kind', k); renderShell(); },
+      }, label, h('small', { class: 'cnt' }, count(k))))),
+      h('button', { class: 'btn primary', onclick: () => bkNew(kind) }, icon('plus', 16), 'كتاب جديد')),
+    h('label', { class: 'search' }, icon('search', 16), search),
+    rows.length ? h('div', { class: 'grid-wrap flat' }, h('table', { class: 'grid simple bk-table' },
+      h('thead', {}, h('tr', {}, ['', 'العنوان', 'النوع', 'المؤلف / المترجم', 'السنة', 'ISBN', 'المواضيع'].map((t) => h('th', {}, t)))),
+      h('tbody', {}, rows.map((r) => h('tr', { class: 'clickable', onclick: () => openRecord('researches', S.byId.researches.get(r.id) || r) },
+        h('td', { class: 'bk-cover' }, bookThumb(r, h('span', { class: 'bk-ph' }, icon('book', 18)))),
+        h('td', {}, h('b', {}, r.title)),
+        h('td', {}, h('span', { class: 'chip center' }, PUB_KINDS[r.pub.kind])),
+        h('td', {}, people(r).length ? people(r).map((p) => h('div', {}, p)) : h('span', { class: 'muted' }, '—')),
+        h('td', { class: 'num' }, r.year ?? '—'),
+        h('td', { class: 'ltr muted' }, r.bib?.isbn || '—'),
+        h('td', {}, bkTopics(r).map((id) => h('span', { class: chipClass('topics', id) }, displayOf('topics', id)))))))))
+      : h('div', { class: 'empty-state' }, h('p', { class: 'muted' }, all.length ? 'لا توجد كتب مطابقة.' : 'لا توجد كتب في إصدارات المركز بعد.')));
+}
+
+function renderBooks(main) {
+  const tab = S.bkTab || 'books';
+  const header = h('div', { class: 'toolbar journal-bar' },
+    h('h1', {}, icon('book', 22), h('span', { class: 'chip center big' }, CENTER_LIBRARY)),
+    h('nav', { class: 'tabs', role: 'tablist' }, BK_TABS.map(([k, label, ic]) => h('button', {
+      class: `tab ${tab === k ? 'on' : ''}`, role: 'tab', onclick: () => { S.bkTab = k; renderShell(); },
+    }, icon(ic, 16), label))));
+  // the library is the files component with no journal (journal_id = null, storage under center/…)
+  const body = tab === 'files' ? filesTab({ id: null, name: CENTER_LIBRARY }) : bkList(main);
+  main.replaceChildren(header, h('div', { class: 'journal-scroll' }, body));
 }
 
 // «مجلتي»: a journal's own space — overview, issues (one page per issue), people, files.

@@ -104,7 +104,8 @@ export function researchExtSections({ row, isNew, pubDefaults, canEditBase, tran
       rxField('العنوان الأصلي', rxInput('text', st.trans.original_title, (v) => { st.trans.original_title = v; changed(); }, !canEditBase), true),
       rxField('اللغة الأصلية', rxSelect((S.data.languages || []).map((l) => [l.id, l.name]), st.trans.original_language_id,
         (v) => { st.trans.original_language_id = rxNum(v); changed(); }, !canEditBase))));
-  const transVisible = () => translators().length > 0;
+  // with a translator, or for a translated book (so its original title can be entered first)
+  const transVisible = () => translators().length > 0 || st.pub?.kind === 'translated_book';
 
   // ---- «الاستلام» ----
   const subBody = h('div', {});

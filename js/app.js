@@ -10,6 +10,7 @@ import { renderUsers } from './users.js';
 import { renderProfile } from './profile.js';
 import { renderJournal, journalNavVisible } from './journal.js';
 import { renderTrash, linkedFilesSection } from './files.js';
+import { renderBooks, booksNavVisible } from './books.js';
 
 // ============ state ============
 export const S = {
@@ -304,7 +305,7 @@ async function boot() {
     await loadAll();
     S.me = S.byId.profiles.get(S.me.id);
     S.view = lsGet('tajdid_view', 'researches');
-    if ((!TABLES[S.view] && !['stats', 'users', 'profile', 'journal', 'trash'].includes(S.view)) || (S.view === 'trash' && S.me.role !== 'owner') || (TABLES[S.view] && !isTableVisible(S.me.role, S.view))) S.view = 'researches';
+    if ((!TABLES[S.view] && !['stats', 'users', 'profile', 'journal', 'trash', 'books'].includes(S.view)) || (S.view === 'trash' && S.me.role !== 'owner') || (S.view === 'books' && !booksNavVisible()) || (TABLES[S.view] && !isTableVisible(S.me.role, S.view))) S.view = 'researches';
     renderShell();
   } catch (e) {
     toast(e.message, 'err');
@@ -406,7 +407,9 @@ export function renderShell() {
       h('div', {}, h('img', { class: 'callig', src: 'assets/calligraphy-light.png', alt: 'مركز تجديد للفكر والثقافة' }), h('small', {}, 'قاعدة بيانات الأبحاث'))),
     h('nav', {},
       h('div', { class: 'nav-title' }, 'الجداول'), groups.main,
-      journalNavVisible() ? [h('div', { class: 'nav-title' }, 'مجلتي'), navItem('journal', 'journal', S.me.role === 'editor' ? 'مجلتي' : 'المجلات والأعداد')] : null,
+      journalNavVisible() || booksNavVisible() ? h('div', { class: 'nav-title' }, S.me.role === 'editor' ? 'مجلتي' : 'المنشورات') : null,
+      journalNavVisible() ? navItem('journal', 'journal', S.me.role === 'editor' ? 'مجلتي' : 'المجلات والأعداد') : null,
+      booksNavVisible() ? navItem('books', 'book', CENTER_LIBRARY, (S.data.researches || []).filter(isBook).length) : null,
       ['owner', 'admin', 'editor'].includes(role) ? [h('div', { class: 'nav-title' }, 'المتابعة'), navItem('stats', 'chart', 'الإحصائيات')] : null,
       h('div', { class: 'nav-title' }, 'القوائم'), groups.lists,
       role === 'owner' ? [h('div', { class: 'nav-title' }, 'الإدارة'), navItem('users', 'users', 'المستخدمون', pendingUsers ? `${pendingUsers} جديد` : null), navItem('trash', 'trash', 'السلة')] : null),
@@ -429,6 +432,7 @@ export function renderShell() {
   else if (S.view === 'stats') renderStats(main);
   else if (S.view === 'users') renderUsers(main);
   else if (S.view === 'trash') renderTrash(main);
+  else if (S.view === 'books') renderBooks(main);
   else renderGrid(main, S.view);
 }
 
