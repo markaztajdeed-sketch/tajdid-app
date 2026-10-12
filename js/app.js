@@ -143,6 +143,44 @@ export function derivedCounts(f, rowId) {
 }
 const derivedIds = (f, rowId) => [...derivedCounts(f, rowId).keys()];
 
+// A person's work in our journals, grouped by journal → issue (books & translations under their journal)
+export function productionOf(personId) {
+  const roles = new Map();
+  for (const [via, label] of [['research_researchers', 'باحث'], ['research_translators', 'مترجم']]) {
+    for (const l of S.data[via] || []) if (l.person_id === personId) roles.set(l.research_id, [...(roles.get(l.research_id) || []), label]);
+  }
+  const journals = new Map();
+  for (const [rid, rs] of roles) {
+    const r = S.byId.researches?.get(rid);
+    const j = researchJournal(r);
+    if (!j) continue;
+    const g = journals.get(j) || { journal: j, issues: new Map(), books: [] };
+    if (r.issue_id) {
+      const list = g.issues.get(r.issue_id) || [];
+      list.push({ r, roles: rs }); g.issues.set(r.issue_id, list);
+    } else g.books.push({ r, roles: rs });
+    journals.set(j, g);
+  }
+  return [...journals.values()].sort((a, b) => displayOf('journals', a.journal).localeCompare(displayOf('journals', b.journal), 'ar'));
+}
+function productionView(personId) {
+  const groups = productionOf(personId);
+  if (!groups.length) return h('span', { class: 'muted' }, 'لا أعمال منشورة له في مجلاتنا بعد.');
+  const item = ({ r, roles }) => h('li', {},
+    h('button', { class: 'link-btn', type: 'button', onclick: () => openRecord('researches', r) }, r.title),
+    h('small', { class: 'muted' }, [roles.join(' و'), r.start_page ? `ص ${r.start_page}${r.end_page ? `–${r.end_page}` : ''}` : null, !r.issue_id && r.year ? r.year : null].filter(Boolean).join(' · ')));
+  return h('div', { class: 'production' }, groups.map((g) => {
+    const issues = [...g.issues].map(([iid, list]) => [S.byId.issues.get(iid), list]).sort((a, b) => (b[0]?.number || 0) - (a[0]?.number || 0));
+    const total = issues.reduce((n, [, l]) => n + l.length, 0) + g.books.length;
+    return h('section', { class: 'prod-journal' },
+      h('h5', {}, h('span', { class: chipClass('journals', g.journal) }, displayOf('journals', g.journal)), h('small', { class: 'muted' }, `${total} عمل`)),
+      issues.map(([iss, list]) => h('div', { class: 'prod-issue' },
+        h('div', { class: 'prod-issue-h' }, `العدد ${iss?.number ?? ''}${iss?.year ? ` (${iss.year})` : ''}${iss?.title ? ` · ${iss.title}` : ''}`),
+        h('ul', {}, list.sort((a, b) => (a.r.issue_order ?? 1e9) - (b.r.issue_order ?? 1e9)).map(item)))),
+      g.books.length ? h('div', { class: 'prod-issue' }, h('div', { class: 'prod-issue-h' }, 'كتب ومترجمات'), h('ul', {}, g.books.map(item))) : null);
+  }));
+}
+
 // value used for search / sort / filter
 function plainValue(table, row, f) {
   switch (f.type) {
@@ -150,6 +188,7 @@ function plainValue(table, row, f) {
     case 'link': return linkedIds(f, row.id).map((id) => displayOf(f.ref, id)).join('، ');
     case 'derived': return derivedIds(f, row.id).map((id) => displayOf(f.ref, id)).join('، ');
     case 'publication': return publicationText(row);
+    case 'production': return productionOf(row.id).map((g) => displayOf('journals', g.journal)).join('، ');
     case 'contacts': return contactsOf(f, row.id).map((c) => c.value).join(' ');
     case 'user': return f.key === 'created_by' && !row[f.key] ? '' : userName(row[f.key]);
     default: return row[f.key] ?? '';
@@ -392,6 +431,8 @@ function renderCell(table, row, f) {
   const v = row[f.key];
   switch (f.type) {
     case 'fk': return v ? h('span', { class: f.ref === 'journals' ? chipClass('journals', v) : 'chip' }, displayOf(f.ref, v)) : '';
+    case 'production': return productionOf(row.id).map((g) => h('span', { class: chipClass('journals', g.journal) }, displayOf('journals', g.journal),
+      h('small', { class: 'chip-count' }, [...g.issues.values()].reduce((n, l) => n + l.length, 0) + g.books.length)));
     case 'publication': {
       const j = researchJournal(row);
       if (!j) return '';
@@ -758,6 +799,9 @@ export function openRecord(table, row, focusKey, defaults = null) {
           h('option', { value: '' }, '—'),
           fkOptions(f.ref).map((o) => h('option', { value: o.id, selected: String(o.id) === String(draft[f.key]) }, o[TABLES[f.ref].display])));
         break;
+      case 'production':
+        control = isNew ? h('span', { class: 'muted' }, 'يظهر بعد ربط الشخص بأعمال منشورة في مجلاتنا.') : productionView(row.id);
+        break;
       case 'publication':
         control = h('div', { class: 'ro-chips' }, isNew ? h('span', { class: 'muted' }, 'تُحدَّد من العدد أو المجلة أدناه') : (renderCell(table, row, f) || h('span', { class: 'muted' }, 'غير منشور في مجلاتنا')));
         break;
@@ -780,7 +824,7 @@ export function openRecord(table, row, focusKey, defaults = null) {
         if (f.type === 'url' && draft[f.key]) control = h('div', { class: 'with-link' }, control, h('a', { href: draft[f.key], target: '_blank', rel: 'noopener', class: 'btn sm' }, icon('link', 14), 'فتح'));
     }
     fieldEls[f.key] = h('div', { class: `field t-${f.type} ${FULL_WIDTH.has(f.key) || f.type === 'longtext' ? 'full' : ''}`, 'data-key': f.key },
-      h('label', {}, f.label, f.required ? h('span', { class: 'req' }, ' *') : null), control);
+      f.type === 'production' ? null : h('label', {}, f.label, f.required ? h('span', { class: 'req' }, ' *') : null), control);
   }
   const layout = FORM_LAYOUT[table];
   const used = new Set();
