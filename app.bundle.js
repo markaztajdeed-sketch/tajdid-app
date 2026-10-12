@@ -246,7 +246,7 @@ function icon(name, size = 18) {
 }
 
 // Table & field definitions: database names (English) ↔ interface labels (Arabic).
-// Field types: text | longtext | number | url | fk | link | contacts | user | date
+// Field types: text | longtext | number | url | fk | link | contacts | user | date | derived | publication
 
 // Record info (who entered/edited and when) — visible to owner & admin only
 const meta = [
@@ -268,12 +268,17 @@ const TABLES = {
       { key: 'title', label: 'عنوان البحث', type: 'text', required: true, width: 320 },
       { key: 'researchers', label: 'الباحثون', type: 'link', via: 'research_researchers', self: 'research_id', other: 'person_id', ref: 'persons', width: 200 },
       { key: 'translators', label: 'المترجمون', type: 'link', via: 'research_translators', self: 'research_id', other: 'person_id', ref: 'persons', width: 180 },
-      { key: 'journals', label: 'المجلات', type: 'link', via: 'research_journals', self: 'research_id', other: 'journal_id', ref: 'journals', width: 180 },
+      { key: 'publication', label: 'النشر في مجلاتنا', type: 'publication', readonly: true, width: 210 },
+      { key: 'topics', label: 'المواضيع', type: 'link', via: 'research_topics', self: 'research_id', other: 'topic_id', ref: 'topics', width: 170 },
       { key: 'publishers', label: 'الناشرون', type: 'link', via: 'research_publishers', self: 'research_id', other: 'publisher_id', ref: 'publishers', width: 200 },
       { key: 'year', label: 'السنة', type: 'number', width: 80 },
       { key: 'research_type_id', label: 'النوع', type: 'fk', ref: 'research_types', width: 100 },
       { key: 'language_id', label: 'اللغة', type: 'fk', ref: 'languages', width: 110 },
-      { key: 'topics', label: 'المواضيع', type: 'link', via: 'research_topics', self: 'research_id', other: 'topic_id', ref: 'topics', width: 160 },
+      { key: 'issue_id', label: 'العدد', type: 'fk', ref: 'issues', width: 170, hidden: true },
+      { key: 'issue_order', label: 'ترتيبها في العدد', type: 'number', width: 90, hidden: true },
+      { key: 'start_page', label: 'من صفحة', type: 'number', width: 80, hidden: true },
+      { key: 'end_page', label: 'إلى صفحة', type: 'number', width: 80, hidden: true },
+      { key: 'journal_id', label: 'المجلة (للكتب والمترجمات)', type: 'fk', ref: 'journals', width: 150, hidden: true },
       { key: 'tags', label: 'الوسوم', type: 'link', via: 'research_tags', self: 'research_id', other: 'tag_id', ref: 'tags', width: 160, hidden: true },
       { key: 'isbn', label: 'ISBN', type: 'text', width: 150, ltr: true },
       { key: 'doi', label: 'DOI', type: 'text', width: 150, ltr: true, hidden: true },
@@ -293,7 +298,7 @@ const TABLES = {
       { key: 'as_researcher', label: 'أبحاثه', type: 'link', via: 'research_researchers', self: 'person_id', other: 'research_id', ref: 'researches', width: 260 },
       { key: 'as_translator', label: 'ترجماته', type: 'link', via: 'research_translators', self: 'person_id', other: 'research_id', ref: 'researches', width: 260 },
       { key: 'related_journals', label: 'المجلات المرتبطة', type: 'derived', ref: 'journals', readonly: true, width: 220,
-        sources: [{ via: 'research_researchers', self: 'person_id' }, { via: 'research_translators', self: 'person_id' }] },
+        compute: 'journals_via_researches', sources: [{ via: 'research_researchers', self: 'person_id' }, { via: 'research_translators', self: 'person_id' }] },
       { key: 'contacts', label: 'وسائل التواصل', type: 'contacts', table: 'persons_contacts', self: 'person_id', width: 240 },
       { key: 'notes', label: 'ملاحظات', type: 'longtext', width: 220 },
       ...meta,
@@ -306,7 +311,7 @@ const TABLES = {
       { key: 'country_id', label: 'الدولة', type: 'fk', ref: 'countries', width: 120 },
       { key: 'researches', label: 'الأبحاث', type: 'link', via: 'research_publishers', self: 'publisher_id', other: 'research_id', ref: 'researches', width: 280 },
       { key: 'related_journals', label: 'المجلات المرتبطة', type: 'derived', ref: 'journals', readonly: true, width: 220,
-        sources: [{ via: 'research_publishers', self: 'publisher_id' }] },
+        compute: 'journals_via_researches', sources: [{ via: 'research_publishers', self: 'publisher_id' }] },
       { key: 'description', label: 'تعريف', type: 'longtext', width: 260 },
       { key: 'contacts', label: 'وسائل التواصل', type: 'contacts', table: 'publishers_contacts', self: 'publisher_id', width: 240 },
       { key: 'notes', label: 'ملاحظات', type: 'longtext', width: 220 },
@@ -314,7 +319,7 @@ const TABLES = {
     ],
   },
   journals: refTable('المجلات', 'journal', [
-    { key: 'researches', label: 'الأبحاث', type: 'link', via: 'research_journals', self: 'journal_id', other: 'research_id', ref: 'researches', width: 420 },
+    { key: 'researches', label: 'المنشور فيها', type: 'derived', compute: 'journal_researches', ref: 'researches', readonly: true, width: 520 },
   ]),
   topics: refTable('المواضيع', 'tag', [
     { key: 'researches', label: 'الأبحاث', type: 'link', via: 'research_topics', self: 'topic_id', other: 'research_id', ref: 'researches', width: 420 },
@@ -327,32 +332,47 @@ const TABLES = {
   research_types: refTable('أنواع الأبحاث', 'layers'),
   contact_types: refTable('أنواع التواصل', 'phone'),
   person_roles: refTable('أدوار الأشخاص', 'idcard'),
+  // Issues are loaded for pickers and labels; their own pages come with «مجلتي»
+  issues: {
+    label: 'الأعداد', single: 'عدد', icon: 'journal', display: 'label', group: 'none',
+    fields: [
+      { key: 'journal_id', label: 'المجلة', type: 'fk', ref: 'journals', required: true },
+      { key: 'number', label: 'رقم العدد', type: 'number', required: true },
+      { key: 'year', label: 'السنة', type: 'number' },
+      { key: 'title', label: 'عنوان العدد', type: 'text' },
+      { key: 'notes', label: 'ملاحظات', type: 'longtext' },
+    ],
+  },
 };
 TABLES.journals.single = 'مجلة';
 
 // Tables loaded but not shown in the sidebar
 const AUX_TABLES = [
-  'research_researchers', 'research_translators', 'research_journals', 'research_publishers',
+  'research_researchers', 'research_translators', 'research_publishers',
   'research_topics', 'research_tags', 'person_role_assignments', 'persons_contacts',
   'publishers_contacts', 'profiles', 'journal_editors',
 ];
 
 const ROLE_LABELS = {
-  owner: 'مالك', admin: 'إدارة', editor: 'مدير تحرير', data_entry: 'مدخل بيانات',
+  owner: 'مالك', admin: 'إدارة', editor: 'مدير مجلة', data_entry: 'مدخل بيانات',
 };
 
 // ---- permissions (mirrors the RLS policies; the database is the real gatekeeper) ----
 const ADMIN_LISTS = ['countries', 'languages', 'research_types', 'contact_types', 'person_roles', 'journals'];
 const SHARED = ['persons', 'publishers', 'topics', 'tags'];
+// A journal manager adds researches, people and publishers, and edits only what they created
+const EDITOR_TABLES = ['researches', 'persons', 'publishers'];
 
 function canInsert(role, table) {
   if (role === 'owner' || role === 'admin') return true;
   if (role === 'data_entry') return table === 'researches' || SHARED.includes(table);
+  if (role === 'editor') return EDITOR_TABLES.includes(table);
   return false;
 }
 
 function canEditRow(role, uid, table, row) {
   if (role === 'owner' || role === 'admin') return true;
+  if (role === 'editor') return EDITOR_TABLES.includes(table) && (!row || row.created_by === uid);
   if (role !== 'data_entry') return false;
   if (table === 'researches') return !row || row.created_by === uid;
   return SHARED.includes(table);
@@ -381,7 +401,8 @@ const FORM_LAYOUT = {
   researches: [
     ['المعلومات الأساسية', ['title', 'year', 'research_type_id', 'language_id', 'pages']],
     ['الأشخاص', ['researchers', 'translators']],
-    ['النشر والتصنيف', ['journals', 'publishers', 'topics', 'tags']],
+    ['النشر في مجلاتنا', ['issue_id', 'issue_order', 'start_page', 'end_page', 'journal_id']],
+    ['النشر والتصنيف', ['topics', 'publishers', 'tags']],
     ['المعرّفات والرابط', ['isbn', 'doi', 'url']],
     ['المحتوى', ['summary', 'notes']],
   ],
@@ -408,6 +429,7 @@ const JOURNAL_COLORS = {
 // Tables hidden from the sidebar per role (still usable inside record forms and filters)
 const HIDDEN_TABLES = {
   data_entry: ['journals', 'countries', 'languages', 'research_types', 'contact_types', 'person_roles'],
+  editor: ['journals', 'topics', 'tags', 'countries', 'languages', 'research_types', 'contact_types', 'person_roles'],
 };
 const isTableVisible = (role, table) => !(HIDDEN_TABLES[role] || []).includes(table);
 
@@ -483,7 +505,7 @@ function subtitleOf(table, id) {
     const pub = (S.data.research_publishers || []).find((l) => l.research_id === id);
     if (pub) parts.push(displayOf('publishers', pub.publisher_id));
   } else if (table === 'journals') {
-    const n = (S.data.research_journals || []).filter((l) => l.journal_id === id).length;
+    const n = (S.data.researches || []).filter((x) => researchJournal(x) === id).length;
     if (n) parts.push(`${n} بحث`);
   }
   return parts.join(' · ');
@@ -509,7 +531,25 @@ function userName(id) {
 const fmtDate = (v) => (v ? new Date(v).toLocaleDateString('ar-LB', { year: 'numeric', month: 'short', day: 'numeric' }) : '');
 
 function index(table) {
+  if (table === 'issues') for (const r of S.data.issues || []) r.label = issueLabel(r);
   S.byId[table] = new Map((S.data[table] || []).map((r) => [r.id, r]));
+}
+function issueLabel(i) {
+  return `${displayOf('journals', i.journal_id)} · العدد ${i.number}${i.year ? ` (${i.year})` : ''}`;
+}
+// The journal a research is actually published in: via its issue (articles) or directly (books / translations)
+function researchJournal(r) {
+  if (!r) return null;
+  if (r.issue_id) return S.byId.issues?.get(r.issue_id)?.journal_id ?? null;
+  return r.journal_id ?? null;
+}
+function publicationText(r) {
+  const j = researchJournal(r);
+  if (!j) return '';
+  if (!r.issue_id) return `${displayOf('journals', j)} (كتاب / ترجمة)`;
+  const i = S.byId.issues?.get(r.issue_id);
+  const pages = r.start_page ? ` · ص ${r.start_page}${r.end_page ? `–${r.end_page}` : ''}` : '';
+  return `${displayOf('journals', j)} · العدد ${i?.number ?? ''}${pages}`;
 }
 
 function linkedIds(field, rowId) {
@@ -521,10 +561,18 @@ function contactsOf(field, rowId) {
 
 // Journals a person/publisher is related to through their researches → Map(journalId → number of researches)
 function derivedCounts(f, rowId) {
+  const m = new Map();
+  if (f.compute === 'journal_researches') {
+    for (const r of S.data.researches || []) if (researchJournal(r) === rowId) m.set(r.id, 1);
+    return m;
+  }
+  // journals_via_researches: the journals where this person's / publisher's researches were actually published
   const rids = new Set();
   for (const src of f.sources) for (const l of S.data[src.via] || []) if (l[src.self] === rowId) rids.add(l.research_id);
-  const m = new Map();
-  for (const l of S.data.research_journals || []) if (rids.has(l.research_id)) m.set(l.journal_id, (m.get(l.journal_id) || 0) + 1);
+  for (const rid of rids) {
+    const j = researchJournal(S.byId.researches?.get(rid));
+    if (j) m.set(j, (m.get(j) || 0) + 1);
+  }
   return new Map([...m].sort((a, b) => b[1] - a[1]));
 }
 const derivedIds = (f, rowId) => [...derivedCounts(f, rowId).keys()];
@@ -535,6 +583,7 @@ function plainValue(table, row, f) {
     case 'fk': return row[f.key] ? displayOf(f.ref, row[f.key]) : '';
     case 'link': return linkedIds(f, row.id).map((id) => displayOf(f.ref, id)).join('، ');
     case 'derived': return derivedIds(f, row.id).map((id) => displayOf(f.ref, id)).join('، ');
+    case 'publication': return publicationText(row);
     case 'contacts': return contactsOf(f, row.id).map((c) => c.value).join(' ');
     case 'user': return f.key === 'created_by' && !row[f.key] ? '' : userName(row[f.key]);
     default: return row[f.key] ?? '';
@@ -543,7 +592,7 @@ function plainValue(table, row, f) {
 
 // ============ data loading ============
 const SELECT_ORDER = { profiles: 'created_at', journal_editors: null, person_role_assignments: null };
-const LINK_TABLES = new Set(['research_researchers', 'research_translators', 'research_journals',
+const LINK_TABLES = new Set(['research_researchers', 'research_translators',
   'research_publishers', 'research_topics', 'research_tags', 'person_role_assignments', 'journal_editors']);
 
 async function loadTable(t) {
@@ -553,6 +602,7 @@ async function loadTable(t) {
 }
 async function loadAll() {
   await Promise.all([...Object.keys(TABLES), ...AUX_TABLES].map(loadTable));
+  index('issues');
 }
 
 // ============ theme ============
@@ -682,7 +732,7 @@ function closeSidebar() { document.body.classList.remove('nav-open'); }
 function renderShell() {
   const role = S.me.role;
   const groups = { main: [], lists: [] };
-  for (const [k, t] of Object.entries(TABLES)) if (isTableVisible(role, k)) groups[t.group].push(navItem(k, t.icon, t.label, S.data[k]?.length));
+  for (const [k, t] of Object.entries(TABLES)) if (groups[t.group] && isTableVisible(role, k)) groups[t.group].push(navItem(k, t.icon, t.label, S.data[k]?.length));
   const pendingUsers = (S.data.profiles || []).filter((p) => !p.active).length;
 
   const sidebar = h('aside', { class: 'sidebar' },
@@ -717,7 +767,7 @@ function renderShell() {
 // ============ grid ============
 function uiFor(table) {
   if (!S.ui[table]) {
-    const hiddenSaved = lsGet(`tajdid_hidden_${table}`, null);
+    const hiddenSaved = lsGet(`tajdid_hidden_v2_${table}`, null);
     S.ui[table] = {
       search: '', sort: null, filters: [],
       hidden: new Set(hiddenSaved ?? fieldsFor(S.me.role, table).filter((f) => f.hidden).map((f) => f.key)),
@@ -736,6 +786,7 @@ function visibleRows(table) {
     const f = fields.find((x) => x.key === flt.key);
     if (!f || flt.value === '' || flt.value == null) continue;
     if (f.type === 'fk') rows = rows.filter((r) => String(r[f.key] ?? '') === String(flt.value));
+    else if (f.type === 'publication') rows = rows.filter((r) => (flt.value === '__none' ? !researchJournal(r) : String(researchJournal(r)) === String(flt.value)));
     else if (f.type === 'derived') rows = rows.filter((r) => flt.value === '__none' ? !derivedIds(f, r.id).length : derivedIds(f, r.id).map(String).includes(String(flt.value)));
     else if (f.type === 'link') rows = rows.filter((r) => flt.value === '__none' ? !linkedIds(f, r.id).length : linkedIds(f, r.id).map(String).includes(String(flt.value)));
     else if (f.type === 'user') rows = rows.filter((r) => String(r[f.key] ?? '') === String(flt.value === '__none' ? '' : flt.value));
@@ -756,12 +807,30 @@ function visibleRows(table) {
   return rows;
 }
 
+function fkOptions(ref) {
+  let rows = [...(S.data[ref] || [])];
+  if (ref === 'issues') {
+    rows.sort((a, b) => displayOf('journals', a.journal_id).localeCompare(displayOf('journals', b.journal_id), 'ar') || b.number - a.number);
+  }
+  if (ref === 'journals' && S.me.role === 'editor') {
+    const mine = new Set((S.data.journal_editors || []).filter((j) => j.user_id === S.me.id).map((j) => j.journal_id));
+    rows = rows.filter((j) => mine.has(j.id));
+  }
+  return rows;
+}
+
 function renderCell(table, row, f) {
   const v = row[f.key];
   switch (f.type) {
-    case 'fk': return v ? h('span', { class: 'chip' }, displayOf(f.ref, v)) : '';
+    case 'fk': return v ? h('span', { class: f.ref === 'journals' ? chipClass('journals', v) : 'chip' }, displayOf(f.ref, v)) : '';
+    case 'publication': {
+      const j = researchJournal(row);
+      if (!j) return '';
+      const rest = publicationText(row).split(' · ').slice(1).join(' · ') || 'كتاب / ترجمة';
+      return [h('span', { class: chipClass('journals', j) }, displayOf('journals', j)), h('small', { class: 'pub-rest' }, rest)];
+    }
     case 'link': return linkedIds(f, row.id).map((id) => h('span', { class: chipClass(f.ref, id) }, displayOf(f.ref, id)));
-    case 'derived': return [...derivedCounts(f, row.id)].map(([id, n]) => h('span', { class: chipClass(f.ref, id), title: `${n} بحث` }, displayOf(f.ref, id), h('small', { class: 'chip-count' }, n)));
+    case 'derived': return [...derivedCounts(f, row.id)].map(([id, n]) => h('span', { class: chipClass(f.ref, id), title: `${n} بحث` }, displayOf(f.ref, id), f.compute === 'journal_researches' ? null : h('small', { class: 'chip-count' }, n)));
     case 'contacts': return contactsOf(f, row.id).map((c) => h('span', { class: 'chip soft', dir: 'auto' }, `${displayOf('contact_types', c.contact_type_id)}: ${c.value}`));
     case 'url': return v ? h('a', { href: v, target: '_blank', rel: 'noopener', dir: 'ltr', onclick: (e) => e.stopPropagation() }, v.replace(/^https?:\/\/(www\.)?/, '').slice(0, 40)) : '';
     case 'user': return f.key === 'updated_by' && !v ? '' : userName(v);
@@ -856,7 +925,7 @@ function startEdit(td, table, row, f) {
   let input;
   if (f.type === 'fk') {
     input = h('select', {}, h('option', { value: '' }, '—'),
-      S.data[f.ref].map((o) => h('option', { value: o.id, selected: String(o.id) === String(row[f.key]) }, o[TABLES[f.ref].display])));
+      fkOptions(f.ref).map((o) => h('option', { value: o.id, selected: String(o.id) === String(row[f.key]) }, o[TABLES[f.ref].display])));
   } else {
     input = h('input', { type: f.type === 'number' ? 'number' : 'text', value: row[f.key] ?? '', dir: f.ltr || f.type === 'url' ? 'ltr' : 'auto' });
   }
@@ -918,7 +987,7 @@ function fieldsButton(table, rerender) {
           type: 'checkbox', checked: !ui.hidden.has(f.key),
           onchange: (ev) => {
             if (ev.target.checked) ui.hidden.delete(f.key); else ui.hidden.add(f.key);
-            lsSet(`tajdid_hidden_${table}`, [...ui.hidden]);
+            lsSet(`tajdid_hidden_v2_${table}`, [...ui.hidden]);
             rerender();
           },
         }), f.label)))),
@@ -938,11 +1007,12 @@ function filterRow(table, flt, i) {
   const fields = fieldsFor(S.me.role, table).filter((f) => f.type !== 'date');
   const f = fields.find((x) => x.key === flt.key) || fields[0];
   let valueEl;
-  if (f.type === 'fk' || f.type === 'link' || f.type === 'derived') {
+  if (f.type === 'fk' || f.type === 'link' || f.type === 'derived' || f.type === 'publication') {
+    const ref = f.type === 'publication' ? 'journals' : f.ref;
     valueEl = h('select', { onchange: (e) => { flt.value = e.target.value; renderShell(); } },
       h('option', { value: '' }, 'اختر…'),
       f.type !== 'fk' ? h('option', { value: '__none', selected: flt.value === '__none' }, '(فارغ)') : null,
-      S.data[f.ref].map((o) => h('option', { value: o.id, selected: String(o.id) === String(flt.value) }, o[TABLES[f.ref].display])));
+      fkOptions(f.ref === 'issues' ? 'issues' : ref).map((o) => h('option', { value: o.id, selected: String(o.id) === String(flt.value) }, o[TABLES[ref].display])));
   } else if (f.type === 'user') {
     valueEl = h('select', { onchange: (e) => { flt.value = e.target.value; renderShell(); } },
       h('option', { value: '' }, 'اختر…'),
@@ -1117,7 +1187,10 @@ function openRecord(table, row, focusKey) {
       case 'fk':
         control = h('select', { disabled: !editable, onchange: (e) => { draft[f.key] = e.target.value ? Number(e.target.value) : null; } },
           h('option', { value: '' }, '—'),
-          S.data[f.ref].map((o) => h('option', { value: o.id, selected: String(o.id) === String(draft[f.key]) }, o[TABLES[f.ref].display])));
+          fkOptions(f.ref).map((o) => h('option', { value: o.id, selected: String(o.id) === String(draft[f.key]) }, o[TABLES[f.ref].display])));
+        break;
+      case 'publication':
+        control = h('div', { class: 'ro-chips' }, isNew ? h('span', { class: 'muted' }, 'تُحدَّد من العدد أو المجلة أدناه') : (renderCell(table, row, f) || h('span', { class: 'muted' }, 'غير منشور في مجلاتنا')));
         break;
       case 'longtext':
         control = h('textarea', { rows: f.key === 'summary' ? 6 : 3, disabled: !editable, dir: 'auto', oninput: (e) => { draft[f.key] = e.target.value; } }, draft[f.key] ?? '');
@@ -1150,6 +1223,30 @@ function openRecord(table, row, focusKey) {
   const metaKeys = fieldsFor(role, table).filter((f) => f.type === 'user' || f.type === 'date').map((f) => f.key);
   section(layout ? 'حقول أخرى' : '', fieldsFor(role, table).map((f) => f.key).filter((k) => !metaKeys.includes(k)));
   section('معلومات السجل', metaKeys, 'meta');
+
+  // Articles belong to an issue (with pages and order); books & translations to a journal directly
+  if (table === 'researches' && fieldEls.issue_id) {
+    const issueSel = fieldEls.issue_id.querySelector('select');
+    const journalSel = fieldEls.journal_id?.querySelector('select');
+    const issueOnly = ['issue_order', 'start_page', 'end_page'].map((k) => fieldEls[k]?.querySelector('input')).filter(Boolean);
+    const lockedIssue = issueSel.disabled; const lockedJournal = journalSel?.disabled;
+    const sync = () => {
+      const hasIssue = !!issueSel.value;
+      if (journalSel) {
+        if (hasIssue && journalSel.value) { journalSel.value = ''; draft.journal_id = null; }
+        journalSel.disabled = lockedJournal || hasIssue;
+      }
+      issueSel.disabled = lockedIssue || !!journalSel?.value;
+      for (const inp of issueOnly) {
+        if (!hasIssue && inp.value) { inp.value = ''; draft[inp.closest('.field').dataset.key] = null; }
+        inp.disabled = lockedIssue || !hasIssue;
+      }
+    };
+    issueSel.addEventListener('change', sync);
+    journalSel?.addEventListener('change', sync);
+    sync();
+    form.querySelector('[data-key="issue_id"]')?.append(h('small', { class: 'hint' }, 'للمقالات. اترك العدد فارغاً للكتب والمترجمات واختر المجلة.'));
+  }
 
   const rowEditable = isNew ? canInsert(role, table) : canEditRow(role, uid, table, row);
   const anyLinkEditable = !isNew && T.fields.some((f) => f.type === 'link' && canEditField(role, uid, table, row, f));
@@ -1308,13 +1405,14 @@ function barCard(title, entries, { sortByLabel = false, labelFn = (k) => k } = {
 function renderStats(main) {
   const R = S.data.researches;
   const links = (via, self, other) => (rid) => S.data[via].filter((l) => l[self] === rid).map((l) => l[other]);
-  const jr = links('research_journals', 'research_id', 'journal_id');
+  const topicsOf = links('research_topics', 'research_id', 'topic_id');
   const pub = links('research_publishers', 'research_id', 'publisher_id');
   const researchers = new Set(S.data.research_researchers.map((l) => l.person_id));
   const translators = new Set(S.data.research_translators.map((l) => l.person_id));
   const translated = new Set(S.data.research_translators.map((l) => l.research_id));
   const noResearcher = R.filter((r) => !S.data.research_researchers.some((l) => l.research_id === r.id)).length;
-  const noJournal = R.filter((r) => !jr(r.id).length).length;
+  const noTopic = R.filter((r) => !topicsOf(r.id).length).length;
+  const published = R.filter((r) => researchJournal(r)).length;
   const noSummary = R.filter((r) => !String(r.summary || '').trim()).length;
 
   const tile = (label, n, sub) => h('div', { class: 'tile' }, h('span', { class: 'tile-n' }, n), h('span', { class: 'tile-l' }, label), sub ? h('small', {}, sub) : null);
@@ -1325,13 +1423,14 @@ function renderStats(main) {
     h('div', { class: 'stats' },
       scope,
       h('div', { class: 'tiles' },
-        tile('بحث', R.length, `${translated.size} منها مترجم`),
+        tile('بحث', R.length, `${translated.size} منها مترجم · ${published} منشور في مجلاتنا`),
         tile('باحث', researchers.size),
         tile('مترجم', translators.size),
         tile('ناشر', S.data.publishers.length),
-        tile('مجلة', S.data.journals.length)),
+        tile('عدد', (S.data.issues || []).length, `في ${S.data.journals.length} مجلات`)),
       h('div', { class: 'cards' },
-        barCard('الأبحاث حسب المجلة', countBy(R, (r) => jr(r.id)), { labelFn: (k) => displayOf('journals', k) }),
+        barCard('المنشور في مجلاتنا', countBy(R.filter((r) => researchJournal(r)), (r) => researchJournal(r)), { labelFn: (k) => displayOf('journals', k) }),
+        barCard('الأبحاث حسب الموضوع', countBy(R, (r) => topicsOf(r.id)), { labelFn: (k) => displayOf('topics', k) }),
         barCard('الأبحاث حسب سنة النشر', countBy(R, (r) => r.year ?? '__none'), { sortByLabel: true }),
         barCard('الأبحاث حسب الناشر', countBy(R, (r) => pub(r.id)), { labelFn: (k) => displayOf('publishers', k) }),
         barCard('الأبحاث حسب اللغة', countBy(R, (r) => r.language_id ?? '__none'), { labelFn: (k) => displayOf('languages', k) }),
@@ -1340,7 +1439,7 @@ function renderStats(main) {
         h('section', { class: 'card' }, h('h3', {}, 'اكتمال البيانات'),
           h('ul', { class: 'gaps' },
             h('li', {}, h('b', {}, noResearcher), ' بحث بدون باحث'),
-            h('li', {}, h('b', {}, noJournal), ' بحث غير مرتبط بمجلة'),
+            h('li', {}, h('b', {}, noTopic), ' بحث بلا موضوع'),
             h('li', {}, h('b', {}, noSummary), ' بحث بدون ملخص'),
             h('li', {}, h('b', {}, S.data.persons.filter((p) => !p.nationality_id).length), ' شخص بدون جنسية'),
             h('li', {}, h('b', {}, S.data.publishers.filter((p) => !p.country_id).length), ' ناشر بدون دولة'))))));
@@ -1391,9 +1490,9 @@ function renderUsers(main) {
       h('div', { class: 'help card' },
         h('b', {}, 'كيف أضيف مستخدماً؟'),
         h('p', {}, 'يفتح الشخص رابط الواجهة ويضغط «طلب حساب جديد». يظهر طلبه هنا كـ«بانتظار التفعيل»، فتختار دوره وتضغط «تفعيل».'),
-        h('p', { class: 'muted' }, 'الصلاحيات: المالك يرى ويعدّل ويحذف كل شيء، ويدير المستخدمين. الإدارة تعدّل كل البيانات وترى الإحصائيات. مدير التحرير يرى أبحاث مجلاته فقط. مدخل البيانات يضيف الأبحاث ويعدّل ما أدخله هو فقط، ويضيف ويعدّل الأشخاص والناشرين.')),
+        h('p', { class: 'muted' }, 'الصلاحيات: المالك يرى ويعدّل ويحذف كل شيء، ويدير المستخدمين. الإدارة تعدّل كل البيانات وترى الإحصائيات. مدير المجلة يرى مقالات مجلته وما أدخله، ويضيف الأبحاث والأشخاص والناشرين ويعدّل ما أضافه هو فقط. مدخل البيانات يضيف الأبحاث ويعدّل ما أدخله هو فقط، ويضيف ويعدّل الأشخاص والناشرين.')),
       h('div', { class: 'grid-wrap' }, h('table', { class: 'grid users-table' },
-        h('thead', {}, h('tr', {}, ['الاسم', 'البريد الإلكتروني', 'الدور', 'المجلات (لمدير التحرير)', 'الحالة'].map((t) => h('th', {}, t)))),
+        h('thead', {}, h('tr', {}, ['الاسم', 'البريد الإلكتروني', 'الدور', 'المجلات (لمدير المجلة)', 'الحالة'].map((t) => h('th', {}, t)))),
         h('tbody', {}, users.map((p) => {
           const self = p.id === S.me.id;
           return h('tr', { class: p.active ? '' : 'pending' },
@@ -1546,9 +1645,8 @@ function statsCard() {
   const max = Math.max(1, ...months.map((m) => m.n));
 
   // my researches by journal
-  const rids = new Set(R.map((r) => r.id));
   const byJournal = new Map();
-  for (const l of S.data.research_journals || []) if (rids.has(l.research_id)) byJournal.set(l.journal_id, (byJournal.get(l.journal_id) || 0) + 1);
+  for (const r of R) { const j = researchJournal(r); if (j) byJournal.set(j, (byJournal.get(j) || 0) + 1); }
 
   const recent = [...R].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 5);
   const tile = (n, l) => h('div', { class: 'tile' }, h('span', { class: 'tile-n' }, n), h('span', { class: 'tile-l' }, l));
@@ -1565,7 +1663,7 @@ function statsCard() {
       h('span', { class: 'mb-n' }, m.n || ''),
       h('span', { class: 'mb-track' }, h('span', { class: 'mb-bar', style: `height:${(m.n / max) * 100}%` })),
       h('span', { class: 'mb-l' }, m.label)))),
-    byJournal.size ? [h('h4', { class: 'sub' }, 'أبحاثي حسب المجلة'),
+    byJournal.size ? [h('h4', { class: 'sub' }, 'أبحاثي المنشورة في مجلاتنا'),
       h('div', { class: 'ro-chips' }, [...byJournal].sort((a, b) => b[1] - a[1]).map(([id, n]) => h('span', { class: chipClass('journals', id) }, displayOf('journals', id), h('small', { class: 'chip-count' }, n))))] : null,
     h('h4', { class: 'sub' }, 'آخر ما أدخلته'),
     recent.length

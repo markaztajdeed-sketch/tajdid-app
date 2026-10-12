@@ -1,5 +1,5 @@
 // Table & field definitions: database names (English) ↔ interface labels (Arabic).
-// Field types: text | longtext | number | url | fk | link | contacts | user | date
+// Field types: text | longtext | number | url | fk | link | contacts | user | date | derived | publication
 
 // Record info (who entered/edited and when) — visible to owner & admin only
 const meta = [
@@ -21,12 +21,17 @@ export const TABLES = {
       { key: 'title', label: 'عنوان البحث', type: 'text', required: true, width: 320 },
       { key: 'researchers', label: 'الباحثون', type: 'link', via: 'research_researchers', self: 'research_id', other: 'person_id', ref: 'persons', width: 200 },
       { key: 'translators', label: 'المترجمون', type: 'link', via: 'research_translators', self: 'research_id', other: 'person_id', ref: 'persons', width: 180 },
-      { key: 'journals', label: 'المجلات', type: 'link', via: 'research_journals', self: 'research_id', other: 'journal_id', ref: 'journals', width: 180 },
+      { key: 'publication', label: 'النشر في مجلاتنا', type: 'publication', readonly: true, width: 210 },
+      { key: 'topics', label: 'المواضيع', type: 'link', via: 'research_topics', self: 'research_id', other: 'topic_id', ref: 'topics', width: 170 },
       { key: 'publishers', label: 'الناشرون', type: 'link', via: 'research_publishers', self: 'research_id', other: 'publisher_id', ref: 'publishers', width: 200 },
       { key: 'year', label: 'السنة', type: 'number', width: 80 },
       { key: 'research_type_id', label: 'النوع', type: 'fk', ref: 'research_types', width: 100 },
       { key: 'language_id', label: 'اللغة', type: 'fk', ref: 'languages', width: 110 },
-      { key: 'topics', label: 'المواضيع', type: 'link', via: 'research_topics', self: 'research_id', other: 'topic_id', ref: 'topics', width: 160 },
+      { key: 'issue_id', label: 'العدد', type: 'fk', ref: 'issues', width: 170, hidden: true },
+      { key: 'issue_order', label: 'ترتيبها في العدد', type: 'number', width: 90, hidden: true },
+      { key: 'start_page', label: 'من صفحة', type: 'number', width: 80, hidden: true },
+      { key: 'end_page', label: 'إلى صفحة', type: 'number', width: 80, hidden: true },
+      { key: 'journal_id', label: 'المجلة (للكتب والمترجمات)', type: 'fk', ref: 'journals', width: 150, hidden: true },
       { key: 'tags', label: 'الوسوم', type: 'link', via: 'research_tags', self: 'research_id', other: 'tag_id', ref: 'tags', width: 160, hidden: true },
       { key: 'isbn', label: 'ISBN', type: 'text', width: 150, ltr: true },
       { key: 'doi', label: 'DOI', type: 'text', width: 150, ltr: true, hidden: true },
@@ -46,7 +51,7 @@ export const TABLES = {
       { key: 'as_researcher', label: 'أبحاثه', type: 'link', via: 'research_researchers', self: 'person_id', other: 'research_id', ref: 'researches', width: 260 },
       { key: 'as_translator', label: 'ترجماته', type: 'link', via: 'research_translators', self: 'person_id', other: 'research_id', ref: 'researches', width: 260 },
       { key: 'related_journals', label: 'المجلات المرتبطة', type: 'derived', ref: 'journals', readonly: true, width: 220,
-        sources: [{ via: 'research_researchers', self: 'person_id' }, { via: 'research_translators', self: 'person_id' }] },
+        compute: 'journals_via_researches', sources: [{ via: 'research_researchers', self: 'person_id' }, { via: 'research_translators', self: 'person_id' }] },
       { key: 'contacts', label: 'وسائل التواصل', type: 'contacts', table: 'persons_contacts', self: 'person_id', width: 240 },
       { key: 'notes', label: 'ملاحظات', type: 'longtext', width: 220 },
       ...meta,
@@ -59,7 +64,7 @@ export const TABLES = {
       { key: 'country_id', label: 'الدولة', type: 'fk', ref: 'countries', width: 120 },
       { key: 'researches', label: 'الأبحاث', type: 'link', via: 'research_publishers', self: 'publisher_id', other: 'research_id', ref: 'researches', width: 280 },
       { key: 'related_journals', label: 'المجلات المرتبطة', type: 'derived', ref: 'journals', readonly: true, width: 220,
-        sources: [{ via: 'research_publishers', self: 'publisher_id' }] },
+        compute: 'journals_via_researches', sources: [{ via: 'research_publishers', self: 'publisher_id' }] },
       { key: 'description', label: 'تعريف', type: 'longtext', width: 260 },
       { key: 'contacts', label: 'وسائل التواصل', type: 'contacts', table: 'publishers_contacts', self: 'publisher_id', width: 240 },
       { key: 'notes', label: 'ملاحظات', type: 'longtext', width: 220 },
@@ -67,7 +72,7 @@ export const TABLES = {
     ],
   },
   journals: refTable('المجلات', 'journal', [
-    { key: 'researches', label: 'الأبحاث', type: 'link', via: 'research_journals', self: 'journal_id', other: 'research_id', ref: 'researches', width: 420 },
+    { key: 'researches', label: 'المنشور فيها', type: 'derived', compute: 'journal_researches', ref: 'researches', readonly: true, width: 520 },
   ]),
   topics: refTable('المواضيع', 'tag', [
     { key: 'researches', label: 'الأبحاث', type: 'link', via: 'research_topics', self: 'topic_id', other: 'research_id', ref: 'researches', width: 420 },
@@ -80,32 +85,47 @@ export const TABLES = {
   research_types: refTable('أنواع الأبحاث', 'layers'),
   contact_types: refTable('أنواع التواصل', 'phone'),
   person_roles: refTable('أدوار الأشخاص', 'idcard'),
+  // Issues are loaded for pickers and labels; their own pages come with «مجلتي»
+  issues: {
+    label: 'الأعداد', single: 'عدد', icon: 'journal', display: 'label', group: 'none',
+    fields: [
+      { key: 'journal_id', label: 'المجلة', type: 'fk', ref: 'journals', required: true },
+      { key: 'number', label: 'رقم العدد', type: 'number', required: true },
+      { key: 'year', label: 'السنة', type: 'number' },
+      { key: 'title', label: 'عنوان العدد', type: 'text' },
+      { key: 'notes', label: 'ملاحظات', type: 'longtext' },
+    ],
+  },
 };
 TABLES.journals.single = 'مجلة';
 
 // Tables loaded but not shown in the sidebar
 export const AUX_TABLES = [
-  'research_researchers', 'research_translators', 'research_journals', 'research_publishers',
+  'research_researchers', 'research_translators', 'research_publishers',
   'research_topics', 'research_tags', 'person_role_assignments', 'persons_contacts',
   'publishers_contacts', 'profiles', 'journal_editors',
 ];
 
 export const ROLE_LABELS = {
-  owner: 'مالك', admin: 'إدارة', editor: 'مدير تحرير', data_entry: 'مدخل بيانات',
+  owner: 'مالك', admin: 'إدارة', editor: 'مدير مجلة', data_entry: 'مدخل بيانات',
 };
 
 // ---- permissions (mirrors the RLS policies; the database is the real gatekeeper) ----
 const ADMIN_LISTS = ['countries', 'languages', 'research_types', 'contact_types', 'person_roles', 'journals'];
 const SHARED = ['persons', 'publishers', 'topics', 'tags'];
+// A journal manager adds researches, people and publishers, and edits only what they created
+const EDITOR_TABLES = ['researches', 'persons', 'publishers'];
 
 export function canInsert(role, table) {
   if (role === 'owner' || role === 'admin') return true;
   if (role === 'data_entry') return table === 'researches' || SHARED.includes(table);
+  if (role === 'editor') return EDITOR_TABLES.includes(table);
   return false;
 }
 
 export function canEditRow(role, uid, table, row) {
   if (role === 'owner' || role === 'admin') return true;
+  if (role === 'editor') return EDITOR_TABLES.includes(table) && (!row || row.created_by === uid);
   if (role !== 'data_entry') return false;
   if (table === 'researches') return !row || row.created_by === uid;
   return SHARED.includes(table);
@@ -134,7 +154,8 @@ export const FORM_LAYOUT = {
   researches: [
     ['المعلومات الأساسية', ['title', 'year', 'research_type_id', 'language_id', 'pages']],
     ['الأشخاص', ['researchers', 'translators']],
-    ['النشر والتصنيف', ['journals', 'publishers', 'topics', 'tags']],
+    ['النشر في مجلاتنا', ['issue_id', 'issue_order', 'start_page', 'end_page', 'journal_id']],
+    ['النشر والتصنيف', ['topics', 'publishers', 'tags']],
     ['المعرّفات والرابط', ['isbn', 'doi', 'url']],
     ['المحتوى', ['summary', 'notes']],
   ],
@@ -161,6 +182,7 @@ export const JOURNAL_COLORS = {
 // Tables hidden from the sidebar per role (still usable inside record forms and filters)
 export const HIDDEN_TABLES = {
   data_entry: ['journals', 'countries', 'languages', 'research_types', 'contact_types', 'person_roles'],
+  editor: ['journals', 'topics', 'tags', 'countries', 'languages', 'research_types', 'contact_types', 'person_roles'],
 };
 export const isTableVisible = (role, table) => !(HIDDEN_TABLES[role] || []).includes(table);
 

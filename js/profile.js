@@ -1,7 +1,7 @@
 import { icon } from './icons.js';
 import * as api from './api.js';
 import {
-  S, h, toast, renderShell, avatarEl, displayOf, chipClass, openRecord, THEMES, currentTheme, applyTheme, lsSet,
+  S, h, toast, renderShell, avatarEl, displayOf, chipClass, openRecord, THEMES, currentTheme, applyTheme, lsSet, researchJournal,
 } from './app.js';
 import { ROLE_LABELS } from './schema.js';
 
@@ -138,9 +138,8 @@ function statsCard() {
   const max = Math.max(1, ...months.map((m) => m.n));
 
   // my researches by journal
-  const rids = new Set(R.map((r) => r.id));
   const byJournal = new Map();
-  for (const l of S.data.research_journals || []) if (rids.has(l.research_id)) byJournal.set(l.journal_id, (byJournal.get(l.journal_id) || 0) + 1);
+  for (const r of R) { const j = researchJournal(r); if (j) byJournal.set(j, (byJournal.get(j) || 0) + 1); }
 
   const recent = [...R].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 5);
   const tile = (n, l) => h('div', { class: 'tile' }, h('span', { class: 'tile-n' }, n), h('span', { class: 'tile-l' }, l));
@@ -157,7 +156,7 @@ function statsCard() {
       h('span', { class: 'mb-n' }, m.n || ''),
       h('span', { class: 'mb-track' }, h('span', { class: 'mb-bar', style: `height:${(m.n / max) * 100}%` })),
       h('span', { class: 'mb-l' }, m.label)))),
-    byJournal.size ? [h('h4', { class: 'sub' }, 'أبحاثي حسب المجلة'),
+    byJournal.size ? [h('h4', { class: 'sub' }, 'أبحاثي المنشورة في مجلاتنا'),
       h('div', { class: 'ro-chips' }, [...byJournal].sort((a, b) => b[1] - a[1]).map(([id, n]) => h('span', { class: chipClass('journals', id) }, displayOf('journals', id), h('small', { class: 'chip-count' }, n))))] : null,
     h('h4', { class: 'sub' }, 'آخر ما أدخلته'),
     recent.length

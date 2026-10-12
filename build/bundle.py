@@ -1,6 +1,6 @@
 # Bundles the ES modules into one classic script so the app also opens from file://
 import re, pathlib
-SRC = pathlib.Path('/home/claude/tajdid-app/js')
+SRC = pathlib.Path(__file__).resolve().parent.parent / 'js'
 def strip(code):
     code = re.sub(r'^import .*?;\s*$', '', code, flags=re.M | re.S)
     code = re.sub(r'^export (async function|function|const|class|let)', r'\1', code, flags=re.M)

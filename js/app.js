@@ -70,7 +70,7 @@ export function subtitleOf(table, id) {
     const pub = (S.data.research_publishers || []).find((l) => l.research_id === id);
     if (pub) parts.push(displayOf('publishers', pub.publisher_id));
   } else if (table === 'journals') {
-    const n = (S.data.research_journals || []).filter((l) => l.journal_id === id).length;
+    const n = (S.data.researches || []).filter((x) => researchJournal(x) === id).length;
     if (n) parts.push(`${n} بحث`);
   }
   return parts.join(' · ');
@@ -96,7 +96,25 @@ export function userName(id) {
 const fmtDate = (v) => (v ? new Date(v).toLocaleDateString('ar-LB', { year: 'numeric', month: 'short', day: 'numeric' }) : '');
 
 function index(table) {
+  if (table === 'issues') for (const r of S.data.issues || []) r.label = issueLabel(r);
   S.byId[table] = new Map((S.data[table] || []).map((r) => [r.id, r]));
+}
+function issueLabel(i) {
+  return `${displayOf('journals', i.journal_id)} · العدد ${i.number}${i.year ? ` (${i.year})` : ''}`;
+}
+// The journal a research is actually published in: via its issue (articles) or directly (books / translations)
+export function researchJournal(r) {
+  if (!r) return null;
+  if (r.issue_id) return S.byId.issues?.get(r.issue_id)?.journal_id ?? null;
+  return r.journal_id ?? null;
+}
+function publicationText(r) {
+  const j = researchJournal(r);
+  if (!j) return '';
+  if (!r.issue_id) return `${displayOf('journals', j)} (كتاب / ترجمة)`;
+  const i = S.byId.issues?.get(r.issue_id);
+  const pages = r.start_page ? ` · ص ${r.start_page}${r.end_page ? `–${r.end_page}` : ''}` : '';
+  return `${displayOf('journals', j)} · العدد ${i?.number ?? ''}${pages}`;
 }
 
 export function linkedIds(field, rowId) {
@@ -108,10 +126,18 @@ function contactsOf(field, rowId) {
 
 // Journals a person/publisher is related to through their researches → Map(journalId → number of researches)
 export function derivedCounts(f, rowId) {
+  const m = new Map();
+  if (f.compute === 'journal_researches') {
+    for (const r of S.data.researches || []) if (researchJournal(r) === rowId) m.set(r.id, 1);
+    return m;
+  }
+  // journals_via_researches: the journals where this person's / publisher's researches were actually published
   const rids = new Set();
   for (const src of f.sources) for (const l of S.data[src.via] || []) if (l[src.self] === rowId) rids.add(l.research_id);
-  const m = new Map();
-  for (const l of S.data.research_journals || []) if (rids.has(l.research_id)) m.set(l.journal_id, (m.get(l.journal_id) || 0) + 1);
+  for (const rid of rids) {
+    const j = researchJournal(S.byId.researches?.get(rid));
+    if (j) m.set(j, (m.get(j) || 0) + 1);
+  }
   return new Map([...m].sort((a, b) => b[1] - a[1]));
 }
 const derivedIds = (f, rowId) => [...derivedCounts(f, rowId).keys()];
@@ -122,6 +148,7 @@ function plainValue(table, row, f) {
     case 'fk': return row[f.key] ? displayOf(f.ref, row[f.key]) : '';
     case 'link': return linkedIds(f, row.id).map((id) => displayOf(f.ref, id)).join('، ');
     case 'derived': return derivedIds(f, row.id).map((id) => displayOf(f.ref, id)).join('، ');
+    case 'publication': return publicationText(row);
     case 'contacts': return contactsOf(f, row.id).map((c) => c.value).join(' ');
     case 'user': return f.key === 'created_by' && !row[f.key] ? '' : userName(row[f.key]);
     default: return row[f.key] ?? '';
@@ -130,7 +157,7 @@ function plainValue(table, row, f) {
 
 // ============ data loading ============
 const SELECT_ORDER = { profiles: 'created_at', journal_editors: null, person_role_assignments: null };
-const LINK_TABLES = new Set(['research_researchers', 'research_translators', 'research_journals',
+const LINK_TABLES = new Set(['research_researchers', 'research_translators',
   'research_publishers', 'research_topics', 'research_tags', 'person_role_assignments', 'journal_editors']);
 
 async function loadTable(t) {
@@ -140,6 +167,7 @@ async function loadTable(t) {
 }
 export async function loadAll() {
   await Promise.all([...Object.keys(TABLES), ...AUX_TABLES].map(loadTable));
+  index('issues');
 }
 
 // ============ theme ============
@@ -269,7 +297,7 @@ function closeSidebar() { document.body.classList.remove('nav-open'); }
 export function renderShell() {
   const role = S.me.role;
   const groups = { main: [], lists: [] };
-  for (const [k, t] of Object.entries(TABLES)) if (isTableVisible(role, k)) groups[t.group].push(navItem(k, t.icon, t.label, S.data[k]?.length));
+  for (const [k, t] of Object.entries(TABLES)) if (groups[t.group] && isTableVisible(role, k)) groups[t.group].push(navItem(k, t.icon, t.label, S.data[k]?.length));
   const pendingUsers = (S.data.profiles || []).filter((p) => !p.active).length;
 
   const sidebar = h('aside', { class: 'sidebar' },
@@ -304,7 +332,7 @@ export function renderShell() {
 // ============ grid ============
 function uiFor(table) {
   if (!S.ui[table]) {
-    const hiddenSaved = lsGet(`tajdid_hidden_${table}`, null);
+    const hiddenSaved = lsGet(`tajdid_hidden_v2_${table}`, null);
     S.ui[table] = {
       search: '', sort: null, filters: [],
       hidden: new Set(hiddenSaved ?? fieldsFor(S.me.role, table).filter((f) => f.hidden).map((f) => f.key)),
@@ -323,6 +351,7 @@ function visibleRows(table) {
     const f = fields.find((x) => x.key === flt.key);
     if (!f || flt.value === '' || flt.value == null) continue;
     if (f.type === 'fk') rows = rows.filter((r) => String(r[f.key] ?? '') === String(flt.value));
+    else if (f.type === 'publication') rows = rows.filter((r) => (flt.value === '__none' ? !researchJournal(r) : String(researchJournal(r)) === String(flt.value)));
     else if (f.type === 'derived') rows = rows.filter((r) => flt.value === '__none' ? !derivedIds(f, r.id).length : derivedIds(f, r.id).map(String).includes(String(flt.value)));
     else if (f.type === 'link') rows = rows.filter((r) => flt.value === '__none' ? !linkedIds(f, r.id).length : linkedIds(f, r.id).map(String).includes(String(flt.value)));
     else if (f.type === 'user') rows = rows.filter((r) => String(r[f.key] ?? '') === String(flt.value === '__none' ? '' : flt.value));
@@ -343,12 +372,30 @@ function visibleRows(table) {
   return rows;
 }
 
+function fkOptions(ref) {
+  let rows = [...(S.data[ref] || [])];
+  if (ref === 'issues') {
+    rows.sort((a, b) => displayOf('journals', a.journal_id).localeCompare(displayOf('journals', b.journal_id), 'ar') || b.number - a.number);
+  }
+  if (ref === 'journals' && S.me.role === 'editor') {
+    const mine = new Set((S.data.journal_editors || []).filter((j) => j.user_id === S.me.id).map((j) => j.journal_id));
+    rows = rows.filter((j) => mine.has(j.id));
+  }
+  return rows;
+}
+
 function renderCell(table, row, f) {
   const v = row[f.key];
   switch (f.type) {
-    case 'fk': return v ? h('span', { class: 'chip' }, displayOf(f.ref, v)) : '';
+    case 'fk': return v ? h('span', { class: f.ref === 'journals' ? chipClass('journals', v) : 'chip' }, displayOf(f.ref, v)) : '';
+    case 'publication': {
+      const j = researchJournal(row);
+      if (!j) return '';
+      const rest = publicationText(row).split(' · ').slice(1).join(' · ') || 'كتاب / ترجمة';
+      return [h('span', { class: chipClass('journals', j) }, displayOf('journals', j)), h('small', { class: 'pub-rest' }, rest)];
+    }
     case 'link': return linkedIds(f, row.id).map((id) => h('span', { class: chipClass(f.ref, id) }, displayOf(f.ref, id)));
-    case 'derived': return [...derivedCounts(f, row.id)].map(([id, n]) => h('span', { class: chipClass(f.ref, id), title: `${n} بحث` }, displayOf(f.ref, id), h('small', { class: 'chip-count' }, n)));
+    case 'derived': return [...derivedCounts(f, row.id)].map(([id, n]) => h('span', { class: chipClass(f.ref, id), title: `${n} بحث` }, displayOf(f.ref, id), f.compute === 'journal_researches' ? null : h('small', { class: 'chip-count' }, n)));
     case 'contacts': return contactsOf(f, row.id).map((c) => h('span', { class: 'chip soft', dir: 'auto' }, `${displayOf('contact_types', c.contact_type_id)}: ${c.value}`));
     case 'url': return v ? h('a', { href: v, target: '_blank', rel: 'noopener', dir: 'ltr', onclick: (e) => e.stopPropagation() }, v.replace(/^https?:\/\/(www\.)?/, '').slice(0, 40)) : '';
     case 'user': return f.key === 'updated_by' && !v ? '' : userName(v);
@@ -443,7 +490,7 @@ function startEdit(td, table, row, f) {
   let input;
   if (f.type === 'fk') {
     input = h('select', {}, h('option', { value: '' }, '—'),
-      S.data[f.ref].map((o) => h('option', { value: o.id, selected: String(o.id) === String(row[f.key]) }, o[TABLES[f.ref].display])));
+      fkOptions(f.ref).map((o) => h('option', { value: o.id, selected: String(o.id) === String(row[f.key]) }, o[TABLES[f.ref].display])));
   } else {
     input = h('input', { type: f.type === 'number' ? 'number' : 'text', value: row[f.key] ?? '', dir: f.ltr || f.type === 'url' ? 'ltr' : 'auto' });
   }
@@ -505,7 +552,7 @@ function fieldsButton(table, rerender) {
           type: 'checkbox', checked: !ui.hidden.has(f.key),
           onchange: (ev) => {
             if (ev.target.checked) ui.hidden.delete(f.key); else ui.hidden.add(f.key);
-            lsSet(`tajdid_hidden_${table}`, [...ui.hidden]);
+            lsSet(`tajdid_hidden_v2_${table}`, [...ui.hidden]);
             rerender();
           },
         }), f.label)))),
@@ -525,11 +572,12 @@ function filterRow(table, flt, i) {
   const fields = fieldsFor(S.me.role, table).filter((f) => f.type !== 'date');
   const f = fields.find((x) => x.key === flt.key) || fields[0];
   let valueEl;
-  if (f.type === 'fk' || f.type === 'link' || f.type === 'derived') {
+  if (f.type === 'fk' || f.type === 'link' || f.type === 'derived' || f.type === 'publication') {
+    const ref = f.type === 'publication' ? 'journals' : f.ref;
     valueEl = h('select', { onchange: (e) => { flt.value = e.target.value; renderShell(); } },
       h('option', { value: '' }, 'اختر…'),
       f.type !== 'fk' ? h('option', { value: '__none', selected: flt.value === '__none' }, '(فارغ)') : null,
-      S.data[f.ref].map((o) => h('option', { value: o.id, selected: String(o.id) === String(flt.value) }, o[TABLES[f.ref].display])));
+      fkOptions(f.ref === 'issues' ? 'issues' : ref).map((o) => h('option', { value: o.id, selected: String(o.id) === String(flt.value) }, o[TABLES[ref].display])));
   } else if (f.type === 'user') {
     valueEl = h('select', { onchange: (e) => { flt.value = e.target.value; renderShell(); } },
       h('option', { value: '' }, 'اختر…'),
@@ -704,7 +752,10 @@ export function openRecord(table, row, focusKey) {
       case 'fk':
         control = h('select', { disabled: !editable, onchange: (e) => { draft[f.key] = e.target.value ? Number(e.target.value) : null; } },
           h('option', { value: '' }, '—'),
-          S.data[f.ref].map((o) => h('option', { value: o.id, selected: String(o.id) === String(draft[f.key]) }, o[TABLES[f.ref].display])));
+          fkOptions(f.ref).map((o) => h('option', { value: o.id, selected: String(o.id) === String(draft[f.key]) }, o[TABLES[f.ref].display])));
+        break;
+      case 'publication':
+        control = h('div', { class: 'ro-chips' }, isNew ? h('span', { class: 'muted' }, 'تُحدَّد من العدد أو المجلة أدناه') : (renderCell(table, row, f) || h('span', { class: 'muted' }, 'غير منشور في مجلاتنا')));
         break;
       case 'longtext':
         control = h('textarea', { rows: f.key === 'summary' ? 6 : 3, disabled: !editable, dir: 'auto', oninput: (e) => { draft[f.key] = e.target.value; } }, draft[f.key] ?? '');
@@ -737,6 +788,30 @@ export function openRecord(table, row, focusKey) {
   const metaKeys = fieldsFor(role, table).filter((f) => f.type === 'user' || f.type === 'date').map((f) => f.key);
   section(layout ? 'حقول أخرى' : '', fieldsFor(role, table).map((f) => f.key).filter((k) => !metaKeys.includes(k)));
   section('معلومات السجل', metaKeys, 'meta');
+
+  // Articles belong to an issue (with pages and order); books & translations to a journal directly
+  if (table === 'researches' && fieldEls.issue_id) {
+    const issueSel = fieldEls.issue_id.querySelector('select');
+    const journalSel = fieldEls.journal_id?.querySelector('select');
+    const issueOnly = ['issue_order', 'start_page', 'end_page'].map((k) => fieldEls[k]?.querySelector('input')).filter(Boolean);
+    const lockedIssue = issueSel.disabled; const lockedJournal = journalSel?.disabled;
+    const sync = () => {
+      const hasIssue = !!issueSel.value;
+      if (journalSel) {
+        if (hasIssue && journalSel.value) { journalSel.value = ''; draft.journal_id = null; }
+        journalSel.disabled = lockedJournal || hasIssue;
+      }
+      issueSel.disabled = lockedIssue || !!journalSel?.value;
+      for (const inp of issueOnly) {
+        if (!hasIssue && inp.value) { inp.value = ''; draft[inp.closest('.field').dataset.key] = null; }
+        inp.disabled = lockedIssue || !hasIssue;
+      }
+    };
+    issueSel.addEventListener('change', sync);
+    journalSel?.addEventListener('change', sync);
+    sync();
+    form.querySelector('[data-key="issue_id"]')?.append(h('small', { class: 'hint' }, 'للمقالات. اترك العدد فارغاً للكتب والمترجمات واختر المجلة.'));
+  }
 
   const rowEditable = isNew ? canInsert(role, table) : canEditRow(role, uid, table, row);
   const anyLinkEditable = !isNew && T.fields.some((f) => f.type === 'link' && canEditField(role, uid, table, row, f));

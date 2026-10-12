@@ -421,3 +421,8 @@ h4.sub { margin: 18px 0 8px; font: 700 13px 'Almarai', 'Tajawal', sans-serif; co
 .link-btn { border: 0; background: none; padding: 0; color: var(--accent-ink); cursor: pointer; text-align: right; font: inherit; }
 .link-btn:hover { text-decoration: underline; }
 @media (max-width: 1000px) { .profile { grid-template-columns: 1fr; } }
+
+/* publication column */
+.pub-rest { color: var(--text-2); font-size: 12px; }
+td.t-publication .cell { align-items: center; }
+.field .hint { display: block; color: var(--muted); font-size: 11.5px; margin-top: 3px; }

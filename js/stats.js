@@ -1,5 +1,5 @@
 import { icon } from './icons.js';
-import { S, h, displayOf, userName } from './app.js';
+import { S, h, displayOf, userName, researchJournal } from './app.js';
 
 function countBy(rows, keyFn) {
   const m = new Map();
@@ -27,13 +27,14 @@ function barCard(title, entries, { sortByLabel = false, labelFn = (k) => k } = {
 export function renderStats(main) {
   const R = S.data.researches;
   const links = (via, self, other) => (rid) => S.data[via].filter((l) => l[self] === rid).map((l) => l[other]);
-  const jr = links('research_journals', 'research_id', 'journal_id');
+  const topicsOf = links('research_topics', 'research_id', 'topic_id');
   const pub = links('research_publishers', 'research_id', 'publisher_id');
   const researchers = new Set(S.data.research_researchers.map((l) => l.person_id));
   const translators = new Set(S.data.research_translators.map((l) => l.person_id));
   const translated = new Set(S.data.research_translators.map((l) => l.research_id));
   const noResearcher = R.filter((r) => !S.data.research_researchers.some((l) => l.research_id === r.id)).length;
-  const noJournal = R.filter((r) => !jr(r.id).length).length;
+  const noTopic = R.filter((r) => !topicsOf(r.id).length).length;
+  const published = R.filter((r) => researchJournal(r)).length;
   const noSummary = R.filter((r) => !String(r.summary || '').trim()).length;
 
   const tile = (label, n, sub) => h('div', { class: 'tile' }, h('span', { class: 'tile-n' }, n), h('span', { class: 'tile-l' }, label), sub ? h('small', {}, sub) : null);
@@ -44,13 +45,14 @@ export function renderStats(main) {
     h('div', { class: 'stats' },
       scope,
       h('div', { class: 'tiles' },
-        tile('بحث', R.length, `${translated.size} منها مترجم`),
+        tile('بحث', R.length, `${translated.size} منها مترجم · ${published} منشور في مجلاتنا`),
         tile('باحث', researchers.size),
         tile('مترجم', translators.size),
         tile('ناشر', S.data.publishers.length),
-        tile('مجلة', S.data.journals.length)),
+        tile('عدد', (S.data.issues || []).length, `في ${S.data.journals.length} مجلات`)),
       h('div', { class: 'cards' },
-        barCard('الأبحاث حسب المجلة', countBy(R, (r) => jr(r.id)), { labelFn: (k) => displayOf('journals', k) }),
+        barCard('المنشور في مجلاتنا', countBy(R.filter((r) => researchJournal(r)), (r) => researchJournal(r)), { labelFn: (k) => displayOf('journals', k) }),
+        barCard('الأبحاث حسب الموضوع', countBy(R, (r) => topicsOf(r.id)), { labelFn: (k) => displayOf('topics', k) }),
         barCard('الأبحاث حسب سنة النشر', countBy(R, (r) => r.year ?? '__none'), { sortByLabel: true }),
         barCard('الأبحاث حسب الناشر', countBy(R, (r) => pub(r.id)), { labelFn: (k) => displayOf('publishers', k) }),
         barCard('الأبحاث حسب اللغة', countBy(R, (r) => r.language_id ?? '__none'), { labelFn: (k) => displayOf('languages', k) }),
@@ -59,7 +61,7 @@ export function renderStats(main) {
         h('section', { class: 'card' }, h('h3', {}, 'اكتمال البيانات'),
           h('ul', { class: 'gaps' },
             h('li', {}, h('b', {}, noResearcher), ' بحث بدون باحث'),
-            h('li', {}, h('b', {}, noJournal), ' بحث غير مرتبط بمجلة'),
+            h('li', {}, h('b', {}, noTopic), ' بحث بلا موضوع'),
             h('li', {}, h('b', {}, noSummary), ' بحث بدون ملخص'),
             h('li', {}, h('b', {}, S.data.persons.filter((p) => !p.nationality_id).length), ' شخص بدون جنسية'),
             h('li', {}, h('b', {}, S.data.publishers.filter((p) => !p.country_id).length), ' ناشر بدون دولة'))))));
