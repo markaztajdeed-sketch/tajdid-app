@@ -1,9 +1,9 @@
 import { icon } from './icons.js';
 import * as api from './api.js';
 import {
-  S, h, toast, renderShell, avatarEl, displayOf, chipClass, openRecord, THEMES, currentTheme, applyTheme, lsSet, researchJournal,
+  S, h, toast, renderShell, avatarEl, displayOf, chipClass, openRecord, THEMES, currentTheme, applyTheme, lsSet, researchJournal, isBook,
 } from './app.js';
-import { ROLE_LABELS } from './schema.js';
+import { ROLE_LABELS, CENTER_LIBRARY } from './schema.js';
 
 const MONTHS = ['كانون الثاني', 'شباط', 'آذار', 'نيسان', 'أيار', 'حزيران', 'تموز', 'آب', 'أيلول', 'تشرين الأول', 'تشرين الثاني', 'كانون الأول'];
 
@@ -139,7 +139,7 @@ function statsCard() {
 
   // my researches by journal
   const byJournal = new Map();
-  for (const r of R) { const j = researchJournal(r); if (j) byJournal.set(j, (byJournal.get(j) || 0) + 1); }
+  for (const r of R) { const j = isBook(r) ? '__center' : researchJournal(r); if (j) byJournal.set(j, (byJournal.get(j) || 0) + 1); }
 
   const recent = [...R].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 5);
   const tile = (n, l) => h('div', { class: 'tile' }, h('span', { class: 'tile-n' }, n), h('span', { class: 'tile-l' }, l));
@@ -156,8 +156,10 @@ function statsCard() {
       h('span', { class: 'mb-n' }, m.n || ''),
       h('span', { class: 'mb-track' }, h('span', { class: 'mb-bar', style: `height:${(m.n / max) * 100}%` })),
       h('span', { class: 'mb-l' }, m.label)))),
-    byJournal.size ? [h('h4', { class: 'sub' }, 'أبحاثي المنشورة في مجلاتنا'),
-      h('div', { class: 'ro-chips' }, [...byJournal].sort((a, b) => b[1] - a[1]).map(([id, n]) => h('span', { class: chipClass('journals', id) }, displayOf('journals', id), h('small', { class: 'chip-count' }, n))))] : null,
+    byJournal.size ? [h('h4', { class: 'sub' }, 'أبحاثي المنشورة في مجلاتنا وإصدارات المركز'),
+      h('div', { class: 'ro-chips' }, [...byJournal].sort((a, b) => b[1] - a[1]).map(([id, n]) => (id === '__center'
+        ? h('span', { class: 'chip center' }, CENTER_LIBRARY, h('small', { class: 'chip-count' }, n))
+        : h('span', { class: chipClass('journals', id) }, displayOf('journals', id), h('small', { class: 'chip-count' }, n)))))] : null,
     h('h4', { class: 'sub' }, 'آخر ما أدخلته'),
     recent.length
       ? h('ul', { class: 'recent' }, recent.map((r) => h('li', {},

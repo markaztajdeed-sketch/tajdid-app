@@ -357,7 +357,7 @@ export function linkedFilesSection(table, row) {
   if (!col) return null;
   const list = h('div', { class: 'linked-files' }, h('p', { class: 'muted' }, 'جارٍ التحميل…'));
   const sec = h('section', { class: 'form-section' }, h('h4', {}, 'الملفات المرتبطة'), list);
-  const issue = table === 'researches' && row.issue_id ? S.byId.issues?.get(row.issue_id) : null;
+  const issue = table === 'researches' && row.pub?.kind === 'article' ? S.byId.issues?.get(row.pub.issue_id) : null;
   const canUpload = issue && managesJournal(S.me.role, issue.journal_id);
   const status = h('small', { class: 'muted' });
   const input = h('input', { type: 'file', multiple: true, hidden: true });

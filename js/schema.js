@@ -1,5 +1,6 @@
 // Table & field definitions: database names (English) ↔ interface labels (Arabic).
-// Field types: text | longtext | number | url | fk | link | contacts | user | date | derived | publication
+// Field types: text | longtext | number | url | fk | enum | link | contacts | user | date | derived | publication | computed
+// ext: the 1:1 extension object on the research row (pub | bib | trans | sub), col: its column
 
 // Record info (who entered/edited and when) — visible to owner & admin only
 const meta = [
@@ -17,28 +18,46 @@ const refTable = (label, icon, extra = []) => ({
 export const TABLES = {
   researches: {
     label: 'الأبحاث', single: 'بحث', icon: 'book', display: 'title', group: 'main',
+    // Columns read from the database (the old publication columns of researches are no longer used),
+    // with the 1:1 extension tables embedded: pub, bib, trans, sub
+    select: 'id,title,summary,year,language_id,research_type_id,url,notes,created_at,created_by,updated_at,updated_by,'
+      + 'pub:center_publications(*),bib:bibliographic_details(*),trans:translation_details(*),sub:submissions(*)',
     fields: [
       { key: 'title', label: 'عنوان البحث', type: 'text', required: true, width: 320 },
       { key: 'researchers', label: 'الباحثون', type: 'link', via: 'research_researchers', self: 'research_id', other: 'person_id', ref: 'persons', width: 200 },
       { key: 'translators', label: 'المترجمون', type: 'link', via: 'research_translators', self: 'research_id', other: 'person_id', ref: 'persons', width: 180 },
+      { key: 'status', label: 'الوضع', type: 'computed', readonly: true, width: 220 },
       { key: 'publication', label: 'النشر في مجلاتنا', type: 'publication', readonly: true, width: 210 },
-      { key: 'topics', label: 'المواضيع', type: 'link', via: 'research_topics', self: 'research_id', other: 'topic_id', ref: 'topics', width: 170 },
-      { key: 'publishers', label: 'الناشرون', type: 'link', via: 'research_publishers', self: 'research_id', other: 'publisher_id', ref: 'publishers', width: 200 },
       { key: 'year', label: 'السنة', type: 'number', width: 80 },
       { key: 'research_type_id', label: 'النوع', type: 'fk', ref: 'research_types', width: 100 },
       { key: 'language_id', label: 'اللغة', type: 'fk', ref: 'languages', width: 110 },
-      { key: 'issue_id', label: 'العدد', type: 'fk', ref: 'issues', width: 170, hidden: true },
-      { key: 'issue_order', label: 'ترتيبها في العدد', type: 'number', width: 90, hidden: true },
-      { key: 'start_page', label: 'من صفحة', type: 'number', width: 80, hidden: true },
-      { key: 'end_page', label: 'إلى صفحة', type: 'number', width: 80, hidden: true },
-      { key: 'journal_id', label: 'المجلة (للكتب والمترجمات)', type: 'fk', ref: 'journals', width: 150, hidden: true },
-      { key: 'tags', label: 'الوسوم', type: 'link', via: 'research_tags', self: 'research_id', other: 'tag_id', ref: 'tags', width: 160, hidden: true },
-      { key: 'isbn', label: 'ISBN', type: 'text', width: 150, ltr: true },
-      { key: 'doi', label: 'DOI', type: 'text', width: 150, ltr: true, hidden: true },
-      { key: 'pages', label: 'عدد الصفحات', type: 'number', width: 100 },
+      { key: 'topics', label: 'المواضيع', type: 'link', via: 'research_topics', self: 'research_id', other: 'topic_id', ref: 'topics', width: 170 },
+      { key: 'publishers', label: 'الناشرون', type: 'link', via: 'research_publishers', self: 'research_id', other: 'publisher_id', ref: 'publishers', width: 200 },
+      { key: 'tags', label: 'الوسوم', type: 'link', via: 'research_tags', self: 'research_id', other: 'tag_id', ref: 'tags', width: 160 },
+      // ---- center_publications (pub) ----
+      { key: 'pub_kind', label: 'نوع النشر', type: 'enum', options: 'PUB_KINDS', ext: 'pub', col: 'kind', width: 120 },
+      { key: 'pub_journal', label: 'المجلة', type: 'computed', readonly: true, width: 130 },
+      { key: 'issue_id', label: 'العدد', type: 'fk', ref: 'issues', ext: 'pub', col: 'issue_id', width: 170 },
+      { key: 'issue_order', label: 'ترتيبها في العدد', type: 'number', ext: 'pub', col: 'issue_order', width: 90 },
+      { key: 'pub_pages', label: 'الصفحات', type: 'computed', readonly: true, width: 100 },
+      { key: 'start_page', label: 'من صفحة', type: 'number', ext: 'pub', col: 'start_page', width: 80 },
+      { key: 'end_page', label: 'إلى صفحة', type: 'number', ext: 'pub', col: 'end_page', width: 80 },
+      // ---- submissions (sub) — not visible to data entry ----
+      { key: 'sub_journal', label: 'مجلة الاستلام', type: 'fk', ref: 'journals', ext: 'sub', col: 'journal_id', width: 130, subOnly: true },
+      { key: 'stage', label: 'المرحلة', type: 'enum', options: 'STAGES', ext: 'sub', col: 'stage', width: 130, subOnly: true },
+      { key: 'received_at', label: 'تاريخ الاستلام', type: 'date', ext: 'sub', col: 'received_at', width: 120, subOnly: true },
+      { key: 'decided_at', label: 'تاريخ القرار', type: 'date', ext: 'sub', col: 'decided_at', width: 120, subOnly: true },
+      { key: 'rejection_reason', label: 'سبب الرفض', type: 'text', ext: 'sub', col: 'rejection_reason', width: 240, subOnly: true },
+      // ---- bibliographic_details (bib) ----
+      { key: 'isbn', label: 'ISBN', type: 'text', ext: 'bib', col: 'isbn', width: 150, ltr: true },
+      { key: 'doi', label: 'DOI', type: 'text', ext: 'bib', col: 'doi', width: 150, ltr: true },
+      { key: 'pages', label: 'عدد الصفحات', type: 'number', ext: 'bib', col: 'pages', width: 100 },
+      // ---- translation_details (trans) ----
+      { key: 'original_title', label: 'العنوان الأصلي', type: 'text', ext: 'trans', col: 'original_title', width: 240 },
+      { key: 'original_language_id', label: 'اللغة الأصلية', type: 'fk', ref: 'languages', ext: 'trans', col: 'original_language_id', width: 110 },
       { key: 'url', label: 'رابط البحث', type: 'url', width: 160 },
       { key: 'summary', label: 'الملخص', type: 'longtext', width: 260 },
-      { key: 'notes', label: 'ملاحظات', type: 'longtext', width: 220, hidden: true },
+      { key: 'notes', label: 'ملاحظات', type: 'longtext', width: 220 },
       ...meta,
     ],
   },
@@ -73,6 +92,7 @@ export const TABLES = {
     ],
   },
   journals: refTable('المجلات', 'journal', [
+    { key: 'frequency', label: 'الدورية', type: 'enum', options: 'FREQUENCIES', width: 120 },
     { key: 'researches', label: 'المنشور فيها', type: 'derived', compute: 'journal_researches', ref: 'researches', readonly: true, width: 520 },
   ]),
   topics: refTable('المواضيع', 'tag', [
@@ -94,6 +114,8 @@ export const TABLES = {
       { key: 'number', label: 'رقم العدد', type: 'number', required: true },
       { key: 'year', label: 'السنة', type: 'number' },
       { key: 'title', label: 'عنوان العدد', type: 'text' },
+      { key: 'period', label: 'الفترة أو الفصل', type: 'text' },
+      { key: 'isbn', label: 'ISBN العدد', type: 'text', ltr: true },
       { key: 'notes', label: 'ملاحظات', type: 'longtext' },
     ],
   },
@@ -110,6 +132,31 @@ export const AUX_TABLES = [
 export const ROLE_LABELS = {
   owner: 'مالك', admin: 'إدارة', editor: 'مدير مجلة', data_entry: 'مدخل بيانات',
 };
+
+// ---- center publications & submissions ----
+export const PUB_KINDS = {
+  article: 'مقالة', authored_book: 'كتاب مؤلَّف', extracted_book: 'كتاب مستَل', translated_book: 'كتاب مترجَم',
+};
+export const STAGES = {
+  received: 'مستلَم', initial_review: 'مراجعة أولية', under_review: 'عند المحكّمين', revisions: 'معاد للتعديل',
+  accepted: 'مقبول', proofreading: 'قيد التدقيق', proofread: 'مدقَّق', final: 'نهائي', published: 'منشور', rejected: 'مرفوض',
+};
+export const FREQUENCIES = { annual: 'سنوية', semiannual: 'نصف سنوية', quarterly: 'فصلية' };
+export const ENUMS = { PUB_KINDS, STAGES, FREQUENCIES };
+export const CENTER_LIBRARY = 'إصدارات المركز';
+// Who may see submissions (data entry does not)
+export const seesSubmissions = (role) => ['owner', 'admin', 'editor'].includes(role);
+// Kinds a role may save in center_publications (books: owner & admin only)
+export const pubKindsFor = (role) => (['owner', 'admin'].includes(role) ? Object.keys(PUB_KINDS) : ['article']);
+
+// Ready-made views above the researches grid: columns + row filter (filter is applied in app.js by key)
+export const RESEARCH_VIEWS = [
+  { key: 'all', label: 'الكل', cols: ['title', 'researchers', 'translators', 'year', 'language_id', 'status'] },
+  { key: 'center', label: 'منشورات المركز', cols: ['title', 'pub_kind', 'pub_journal', 'issue_id', 'pub_pages'] },
+  { key: 'wip', label: 'قيد العمل', cols: ['title', 'sub_journal', 'stage', 'received_at'], subOnly: true },
+  { key: 'rejected', label: 'المرفوضة', cols: ['title', 'sub_journal', 'decided_at', 'rejection_reason'], subOnly: true },
+  { key: 'external', label: 'الأبحاث الخارجية', cols: ['title', 'isbn', 'doi', 'publishers', 'topics'] },
+];
 
 // ---- permissions (mirrors the RLS policies; the database is the real gatekeeper) ----
 const ADMIN_LISTS = ['countries', 'languages', 'research_types', 'contact_types', 'person_roles', 'journals'];
@@ -158,13 +205,13 @@ export function canDelete(role, table) {
 
 // Sections for the record window (fields not listed go to the last section)
 export const FORM_LAYOUT = {
+  // '@ext' marks where the conditional sections (center publication, submission, bibliographic, original) go
   researches: [
-    ['المعلومات الأساسية', ['title', 'year', 'research_type_id', 'language_id', 'pages']],
+    ['المعلومات الأساسية', ['title', 'year', 'research_type_id', 'language_id']],
     ['الأشخاص', ['researchers', 'translators']],
-    ['النشر في مجلاتنا', ['issue_id', 'issue_order', 'start_page', 'end_page', 'journal_id']],
-    ['النشر والتصنيف', ['topics', 'publishers', 'tags']],
-    ['المعرّفات والرابط', ['isbn', 'doi', 'url']],
-    ['المحتوى', ['summary', 'notes']],
+    ['@ext', []],
+    ['التصنيف والناشرون', ['topics', 'publishers', 'tags']],
+    ['الرابط والمحتوى', ['url', 'summary', 'notes']],
   ],
   persons: [
     ['البيانات', ['name', 'nationality_id', 'roles']],
@@ -195,4 +242,5 @@ export const HIDDEN_TABLES = {
 export const isTableVisible = (role, table) => !(HIDDEN_TABLES[role] || []).includes(table);
 
 // Fields a role may see (record info is for owner & admin only)
-export const fieldsFor = (role, table) => TABLES[table].fields.filter((f) => !f.staffOnly || role === 'owner' || role === 'admin');
+export const fieldsFor = (role, table) => TABLES[table].fields.filter((f) => (!f.staffOnly || role === 'owner' || role === 'admin')
+  && (!f.subOnly || seesSubmissions(role)));

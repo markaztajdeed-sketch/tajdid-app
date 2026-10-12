@@ -11,7 +11,7 @@ exported = [n for n in api_names if re.search(rf'^export (?:async function|funct
 app = strip((SRC / 'app.js').read_text()).replace('\nboot();\n', '\n')
 out = ['/* مركز تجديد — ملف مُجمَّع تلقائياً، لا تعدّله مباشرة */', '(function () {', "'use strict';",
        'const api = (function () {', api, f'return {{ {", ".join(exported)} }};', '})();',
-       strip((SRC / 'icons.js').read_text()), strip((SRC / 'schema.js').read_text()), app,
+       strip((SRC / 'icons.js').read_text()), strip((SRC / 'schema.js').read_text()), app, strip((SRC / 'research.js').read_text()),
        strip((SRC / 'stats.js').read_text()), strip((SRC / 'users.js').read_text()), strip((SRC / 'profile.js').read_text()), strip((SRC / 'files.js').read_text()), strip((SRC / 'journal.js').read_text()),
        'boot();', '})();']
 (SRC.parent / 'app.bundle.js').write_text('\n'.join(out))

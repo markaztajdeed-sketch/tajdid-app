@@ -27,10 +27,21 @@ function translateError(body, status) {
   if (/User already registered/i.test(msg)) return 'هذا البريد مسجّل مسبقاً';
   if (/Password should be at least/i.test(msg)) return 'كلمة السر قصيرة جداً (6 أحرف على الأقل)';
   if (/rate limit/i.test(msg)) return 'محاولات كثيرة، يرجى الانتظار قليلاً ثم إعادة المحاولة';
-  if (code === '42501' || /row-level security/i.test(msg)) return 'ليس لديك صلاحية لتنفيذ هذا الإجراء';
+  if (code === '42501' || /row-level security/i.test(msg)) {
+    if (/center_publications/.test(msg)) return 'لا يمكنك حفظ هذا النشر: الكتب يضيفها المالك والإدارة فقط، والمقالة تُضاف لبحث أدخلته أنت وفي عدد من مجلاتك.';
+    if (/submissions/.test(msg)) return 'لا يمكنك حفظ هذا الاستلام: تستطيع إدارة استلامات مجلاتك فقط.';
+    if (/bibliographic_details|translation_details/.test(msg)) return 'لا يمكنك تعديل بيانات هذا البحث لأنك لم تُدخله.';
+    return 'ليس لديك صلاحية لتنفيذ هذا الإجراء';
+  }
   if (code === '23503') return 'لا يمكن تنفيذ العملية لأن هذا السجل مرتبط بسجلات أخرى';
+  if (code === '23505' && /isbn/i.test(msg)) return 'رقم ISBN هذا مستخدم لسجل آخر';
+  if (code === '23505' && /doi/i.test(msg)) return 'رقم DOI هذا مستخدم لسجل آخر';
   if (code === '23505' && /issues/.test(msg)) return 'هذا العدد موجود مسبقاً في هذه المجلة. تجده في «المجلات والأعداد» بعد اختيار المجلة من الأعلى.';
+  if (code === '23505' && /submissions/.test(msg)) return 'لهذا البحث استلام مسجّل مسبقاً (يُقدَّم البحث مرة واحدة)';
   if (code === '23505') return 'هذه القيمة موجودة مسبقاً (لا يُسمح بالتكرار)';
+  if (code === '23514' && /center_pub_article_issue/.test(msg)) return 'المقالة تحتاج عدداً، والكتاب لا يُربط بعدد ولا بصفحات';
+  if (code === '23514' && /pages_order/.test(msg)) return 'صفحة النهاية يجب ألا تكون قبل صفحة البداية';
+  if (code === '23514' && /rejection_reason/.test(msg)) return 'سبب الرفض يُكتب فقط عندما تكون المرحلة «مرفوض»';
   if (code === '23514') return 'قيمة غير صالحة (تحقق من السنة أو عدد الصفحات)';
   if (code === '23502') return 'يوجد حقل إلزامي فارغ';
   if (code === 'P0001') return msg;
@@ -137,11 +148,12 @@ const enc = (v) => encodeURIComponent(v);
 const filterQs = (match) =>
   Object.entries(match).map(([k, v]) => `${enc(k)}=eq.${enc(v)}`).join('&');
 
-export async function selectAll(table, order = 'id') {
+// cols: PostgREST select list, including embedded relations, e.g. '*,pub:center_publications(*)'
+export async function selectAll(table, order = 'id', cols = '*') {
   const out = [];
   const size = 1000;
   for (let from = 0; ; from += size) {
-    const page = await rest(`${enc(table)}?select=*${order ? `&order=${order}` : ''}`, {
+    const page = await rest(`${enc(table)}?select=${cols}${order ? `&order=${order}` : ''}`, {
       headers: { Range: `${from}-${from + size - 1}`, 'Range-Unit': 'items' },
     });
     out.push(...page);
@@ -172,6 +184,21 @@ export async function deleteRows(table, match) {
   });
   if (!rows || !rows.length) throw new ApiError('ليس لديك صلاحية لحذف هذا السجل');
   return rows;
+}
+
+// ---------- 1:1 extension tables (keyed by research_id) ----------
+// Insert or update the row of an extension table for one research
+export async function upsertExtension(table, researchId, values) {
+  const rows = await rest(`${enc(table)}?on_conflict=research_id`, {
+    method: 'POST', body: { ...values, research_id: researchId },
+    headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+  });
+  if (!rows || !rows.length) throw new ApiError('ليس لديك صلاحية لتنفيذ هذا الإجراء');
+  return rows[0];
+}
+// Remove the row of an extension table for one research
+export async function deleteExtension(table, researchId) {
+  return deleteRows(table, { research_id: researchId });
 }
 
 // Filtered select, e.g. select('folders', 'journal_id=eq.2&order=sort')

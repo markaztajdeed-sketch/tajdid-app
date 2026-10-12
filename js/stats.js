@@ -1,5 +1,10 @@
 import { icon } from './icons.js';
-import { S, h, displayOf, userName, researchJournal } from './app.js';
+import { S, h, displayOf, userName, researchJournal, isBook, researchStatus } from './app.js';
+import { CENTER_LIBRARY, PUB_KINDS, STAGES, seesSubmissions } from './schema.js';
+
+// Where a research is published: its journal, or the center library for books
+const placeOf = (r) => (isBook(r) ? '__center' : researchJournal(r));
+const placeLabel = (k) => (k === '__center' ? CENTER_LIBRARY : displayOf('journals', k));
 
 function countBy(rows, keyFn) {
   const m = new Map();
@@ -34,7 +39,11 @@ export function renderStats(main) {
   const translated = new Set(S.data.research_translators.map((l) => l.research_id));
   const noResearcher = R.filter((r) => !S.data.research_researchers.some((l) => l.research_id === r.id)).length;
   const noTopic = R.filter((r) => !topicsOf(r.id).length).length;
-  const published = R.filter((r) => researchJournal(r)).length;
+  const published = R.filter((r) => r.pub).length;
+  const books = R.filter((r) => isBook(r)).length;
+  const subs = R.filter((r) => r.sub);
+  const inProgress = subs.filter((r) => researchStatus(r).kind === 'wip').length;
+  const rejected = subs.filter((r) => r.sub.stage === 'rejected').length;
   const noSummary = R.filter((r) => !String(r.summary || '').trim()).length;
 
   const tile = (label, n, sub) => h('div', { class: 'tile' }, h('span', { class: 'tile-n' }, n), h('span', { class: 'tile-l' }, label), sub ? h('small', {}, sub) : null);
@@ -45,13 +54,17 @@ export function renderStats(main) {
     h('div', { class: 'stats' },
       scope,
       h('div', { class: 'tiles' },
-        tile('بحث', R.length, `${translated.size} منها مترجم · ${published} منشور في مجلاتنا`),
+        tile('بحث', R.length, `${translated.size} منها مترجم · ${published} من منشورات المركز`),
         tile('باحث', researchers.size),
         tile('مترجم', translators.size),
         tile('ناشر', S.data.publishers.length),
-        tile('عدد', (S.data.issues || []).length, `في ${S.data.journals.length} مجلات`)),
+        tile('عدد', (S.data.issues || []).length, `في ${S.data.journals.length} مجلات`),
+        tile('كتاب', books, CENTER_LIBRARY),
+        seesSubmissions(S.me.role) ? tile('استلام قيد العمل', inProgress, `${rejected} مرفوض`) : null),
       h('div', { class: 'cards' },
-        barCard('المنشور في مجلاتنا', countBy(R.filter((r) => researchJournal(r)), (r) => researchJournal(r)), { labelFn: (k) => displayOf('journals', k) }),
+        barCard('منشورات المركز', countBy(R.filter((r) => r.pub), placeOf), { labelFn: placeLabel }),
+        books ? barCard('الكتب حسب النوع', countBy(R.filter((r) => isBook(r)), (r) => r.pub.kind), { labelFn: (k) => PUB_KINDS[k] }) : null,
+        seesSubmissions(S.me.role) && subs.length ? barCard('الاستلامات حسب المرحلة', countBy(subs, (r) => r.sub.stage), { labelFn: (k) => STAGES[k] }) : null,
         barCard('الأبحاث حسب الموضوع', countBy(R, (r) => topicsOf(r.id)), { labelFn: (k) => displayOf('topics', k) }),
         barCard('الأبحاث حسب سنة النشر', countBy(R, (r) => r.year ?? '__none'), { sortByLabel: true }),
         barCard('الأبحاث حسب الناشر', countBy(R, (r) => pub(r.id)), { labelFn: (k) => displayOf('publishers', k) }),

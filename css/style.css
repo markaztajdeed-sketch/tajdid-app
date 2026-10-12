@@ -543,3 +543,36 @@ table.grid.simple { width: 100%; table-layout: auto; }
 .issue-thumb { width: 44px; height: 58px; object-fit: cover; border-radius: 6px; box-shadow: var(--shadow); background: var(--surface-2); flex: none; }
 .linked-files { display: grid; gap: 10px; }
 .linked-files .files-tools { align-items: center; }
+
+/* research views */
+.views-bar { display: flex; gap: 4px; flex-wrap: wrap; padding: 8px 18px 0; border-bottom: 1px solid var(--border); background: var(--surface); }
+.view-tab { display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent; padding: 8px 12px; border-radius: 8px 8px 0 0; cursor: pointer; color: var(--text-2); font: inherit; font-size: 14px; border-bottom: 2px solid transparent; }
+.view-tab:hover { background: var(--surface-2); }
+.view-tab.on { color: var(--accent-ink); font-weight: 700; border-bottom-color: var(--gold); background: var(--accent-soft); }
+.view-tab .cnt { font-size: 11px; color: var(--muted); background: var(--surface-2); border-radius: 10px; padding: 0 7px; }
+.view-tab.on .cnt { background: var(--surface); }
+
+/* status & center library chips */
+.chip.center { background: #e8eef5; color: #0e2a47; }
+.chip.center::before { content: ''; width: 7px; height: 7px; border-radius: 2px; background: var(--gold); flex: none; }
+.chip.st-wip { background: #fff4d6; color: #7a5a00; }
+.chip.st-rejected { background: var(--danger-soft); color: var(--danger); }
+.chip.st-published { background: #e3f4ea; color: #1f6b3f; }
+.chip.st-external { background: var(--surface-2); color: var(--text-2); }
+.is-dark .chip.center { background: rgba(212, 175, 55, .14); color: #e8cd76; }
+.is-dark .chip.st-wip { background: rgba(224, 179, 65, .18); color: #f0cf73; }
+.is-dark .chip.st-published { background: rgba(46, 157, 91, .2); color: #7fd6a2; }
+
+/* conditional research sections */
+.form-section[hidden] { display: none; }
+.form-section.ext .ext-empty { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 8px 10px; border: 1px dashed var(--border-strong); border-radius: 10px; }
+.form-section.ext .ext-actions { display: flex; justify-content: flex-end; margin-top: 6px; }
+.form-section.ext .hint { display: block; color: var(--muted); font-size: 11.5px; margin-top: 4px; }
+.timeline { margin-top: 10px; }
+.timeline .tl-title { font-size: 12.5px; font-weight: 700; color: var(--text-2); margin-bottom: 6px; }
+.timeline ol { list-style: none; margin: 0; padding: 0; border-inline-start: 2px solid var(--border); }
+.timeline li { position: relative; padding: 2px 14px 8px; display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
+.timeline li::before { content: ''; position: absolute; inset-inline-start: -6px; top: 7px; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); border: 2px solid var(--surface); }
+.timeline li.tl-rejected::before { background: var(--danger); }
+.timeline li.tl-published::before, .timeline li.tl-accepted::before { background: #2e9d5b; }
+.timeline .tl-note { flex-basis: 100%; font-size: 12.5px; color: var(--text-2); }

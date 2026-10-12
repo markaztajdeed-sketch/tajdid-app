@@ -1,7 +1,9 @@
 import * as api from './api.js';
 import {
   TABLES, AUX_TABLES, ROLE_LABELS, FORM_LAYOUT, FULL_WIDTH, JOURNAL_COLORS, isTableVisible, fieldsFor, setManagedJournals, canInsert, canEditRow, canEditField, canDelete,
+  ENUMS, PUB_KINDS, STAGES, CENTER_LIBRARY, RESEARCH_VIEWS, seesSubmissions,
 } from './schema.js';
+import { researchExtSections } from './research.js';
 import { renderStats } from './stats.js';
 import { icon } from './icons.js';
 import { renderUsers } from './users.js';
@@ -104,19 +106,60 @@ function index(table) {
 function issueLabel(i) {
   return `${displayOf('journals', i.journal_id)} · العدد ${i.number}${i.year ? ` (${i.year})` : ''}`;
 }
-// The journal a research is actually published in: via its issue (articles) or directly (books / translations)
-export function researchJournal(r) {
-  if (!r) return null;
-  if (r.issue_id) return S.byId.issues?.get(r.issue_id)?.journal_id ?? null;
-  return r.journal_id ?? null;
+// ---- research publication helpers (read the 1:1 extension objects: pub, bib, trans, sub) ----
+// Value of a field on a row — extension fields live in row[f.ext][f.col]
+export function valueOf(row, f) {
+  if (f.ext) return row?.[f.ext]?.[f.col] ?? null;
+  return row?.[f.key] ?? null;
 }
+const enumLabel = (f, v) => (v == null ? '' : (ENUMS[f.options]?.[v] ?? v));
+export const isArticle = (r) => r?.pub?.kind === 'article';
+export const isBook = (r) => !!r?.pub && r.pub.kind !== 'article';
+// The journal an article is published in (through its issue). Books belong to no journal.
+export function researchJournal(r) {
+  if (!isArticle(r)) return null;
+  return S.byId.issues?.get(r.pub.issue_id)?.journal_id ?? null;
+}
+const pagesText = (p) => (p?.start_page ? `${p.start_page}${p.end_page ? `–${p.end_page}` : ''}` : '');
 function publicationText(r) {
+  if (isBook(r)) return `${CENTER_LIBRARY} · ${PUB_KINDS[r.pub.kind]}`;
   const j = researchJournal(r);
   if (!j) return '';
-  if (!r.issue_id) return `${displayOf('journals', j)} (كتاب / ترجمة)`;
-  const i = S.byId.issues?.get(r.issue_id);
-  const pages = r.start_page ? ` · ص ${r.start_page}${r.end_page ? `–${r.end_page}` : ''}` : '';
-  return `${displayOf('journals', j)} · العدد ${i?.number ?? ''}${pages}`;
+  const i = S.byId.issues?.get(r.pub.issue_id);
+  const pages = pagesText(r.pub);
+  return `${displayOf('journals', j)} · العدد ${i?.number ?? ''}${pages ? ` · ص ${pages}` : ''}`;
+}
+// external | wip (with stage) | rejected | published (journal & issue, or book kind)
+export function researchStatus(r) {
+  if (r?.pub) return { kind: 'published', text: `منشور · ${publicationText(r)}`, journal: researchJournal(r) };
+  if (r?.sub?.stage === 'rejected') return { kind: 'rejected', text: `مرفوض · ${displayOf('journals', r.sub.journal_id)}` };
+  if (r?.sub) return { kind: 'wip', text: `قيد العمل · ${STAGES[r.sub.stage] ?? r.sub.stage}`, journal: r.sub.journal_id };
+  return { kind: 'external', text: 'خارجي' };
+}
+// Computed (read-only) research columns
+function computedText(row, f) {
+  if (f.key === 'status') return researchStatus(row).text;
+  if (f.key === 'pub_journal') return isBook(row) ? CENTER_LIBRARY : (researchJournal(row) ? displayOf('journals', researchJournal(row)) : '');
+  if (f.key === 'pub_pages') return pagesText(row.pub);
+  return '';
+}
+function computedCell(row, f) {
+  if (f.key === 'status') {
+    const st = researchStatus(row);
+    if (st.kind === 'published' && st.journal) {
+      return [h('span', { class: chipClass('journals', st.journal) }, displayOf('journals', st.journal)), h('small', { class: 'pub-rest' }, publicationText(row).split(' · ').slice(1).join(' · '))];
+    }
+    if (st.kind === 'published') return [h('span', { class: 'chip center' }, CENTER_LIBRARY), h('small', { class: 'pub-rest' }, PUB_KINDS[row.pub.kind])];
+    if (st.kind === 'wip') return [h('span', { class: 'chip st-wip' }, STAGES[row.sub.stage]), h('small', { class: 'pub-rest' }, displayOf('journals', row.sub.journal_id))];
+    if (st.kind === 'rejected') return [h('span', { class: 'chip st-rejected' }, 'مرفوض'), h('small', { class: 'pub-rest' }, displayOf('journals', row.sub.journal_id))];
+    return h('span', { class: 'chip st-external' }, 'خارجي');
+  }
+  if (f.key === 'pub_journal') {
+    if (isBook(row)) return h('span', { class: 'chip center' }, CENTER_LIBRARY);
+    const j = researchJournal(row);
+    return j ? h('span', { class: chipClass('journals', j) }, displayOf('journals', j)) : '';
+  }
+  return computedText(row, f);
 }
 
 export function linkedIds(field, rowId) {
@@ -144,55 +187,61 @@ export function derivedCounts(f, rowId) {
 }
 const derivedIds = (f, rowId) => [...derivedCounts(f, rowId).keys()];
 
-// A person's work in our journals, grouped by journal → issue (books & translations under their journal)
+// A person's work in our publications: articles grouped by journal → issue, books under «إصدارات المركز»
 export function productionOf(personId) {
   const roles = new Map();
   for (const [via, label] of [['research_researchers', 'باحث'], ['research_translators', 'مترجم']]) {
     for (const l of S.data[via] || []) if (l.person_id === personId) roles.set(l.research_id, [...(roles.get(l.research_id) || []), label]);
   }
-  const journals = new Map();
+  const journals = new Map(); const center = { journal: null, issues: new Map(), books: [] };
   for (const [rid, rs] of roles) {
     const r = S.byId.researches?.get(rid);
+    if (isBook(r)) { center.books.push({ r, roles: rs }); continue; }
     const j = researchJournal(r);
     if (!j) continue;
     const g = journals.get(j) || { journal: j, issues: new Map(), books: [] };
-    if (r.issue_id) {
-      const list = g.issues.get(r.issue_id) || [];
-      list.push({ r, roles: rs }); g.issues.set(r.issue_id, list);
-    } else g.books.push({ r, roles: rs });
+    const list = g.issues.get(r.pub.issue_id) || [];
+    list.push({ r, roles: rs }); g.issues.set(r.pub.issue_id, list);
     journals.set(j, g);
   }
-  return [...journals.values()].sort((a, b) => displayOf('journals', a.journal).localeCompare(displayOf('journals', b.journal), 'ar'));
+  const out = [...journals.values()].sort((a, b) => displayOf('journals', a.journal).localeCompare(displayOf('journals', b.journal), 'ar'));
+  if (center.books.length) out.push(center);
+  return out;
 }
+const groupLabel = (g) => (g.journal ? displayOf('journals', g.journal) : CENTER_LIBRARY);
+const groupChip = (g) => (g.journal ? chipClass('journals', g.journal) : 'chip center');
 function productionView(personId) {
   const groups = productionOf(personId);
-  if (!groups.length) return h('span', { class: 'muted' }, 'لا أعمال منشورة له في مجلاتنا بعد.');
+  if (!groups.length) return h('span', { class: 'muted' }, 'لا أعمال منشورة له في مجلاتنا وإصدارات المركز بعد.');
   const item = ({ r, roles }) => h('li', {},
     h('button', { class: 'link-btn', type: 'button', onclick: () => openRecord('researches', r) }, r.title),
-    h('small', { class: 'muted' }, [roles.join(' و'), r.start_page ? `ص ${r.start_page}${r.end_page ? `–${r.end_page}` : ''}` : null, !r.issue_id && r.year ? r.year : null].filter(Boolean).join(' · ')));
+    h('small', { class: 'muted' }, [roles.join(' و'), isArticle(r) && pagesText(r.pub) ? `ص ${pagesText(r.pub)}` : null, isBook(r) ? PUB_KINDS[r.pub.kind] : null, isBook(r) && r.year ? r.year : null].filter(Boolean).join(' · ')));
   return h('div', { class: 'production' }, groups.map((g) => {
     const issues = [...g.issues].map(([iid, list]) => [S.byId.issues.get(iid), list]).sort((a, b) => (b[0]?.number || 0) - (a[0]?.number || 0));
     const total = issues.reduce((n, [, l]) => n + l.length, 0) + g.books.length;
     return h('section', { class: 'prod-journal' },
-      h('h5', {}, h('span', { class: chipClass('journals', g.journal) }, displayOf('journals', g.journal)), h('small', { class: 'muted' }, `${total} عمل`)),
+      h('h5', {}, h('span', { class: groupChip(g) }, groupLabel(g)), h('small', { class: 'muted' }, `${total} عمل`)),
       issues.map(([iss, list]) => h('div', { class: 'prod-issue' },
         h('div', { class: 'prod-issue-h' }, `العدد ${iss?.number ?? ''}${iss?.year ? ` (${iss.year})` : ''}${iss?.title ? ` · ${iss.title}` : ''}`),
-        h('ul', {}, list.sort((a, b) => (a.r.issue_order ?? 1e9) - (b.r.issue_order ?? 1e9)).map(item)))),
-      g.books.length ? h('div', { class: 'prod-issue' }, h('div', { class: 'prod-issue-h' }, 'كتب ومترجمات'), h('ul', {}, g.books.map(item))) : null);
+        h('ul', {}, list.sort((a, b) => (a.r.pub.issue_order ?? 1e9) - (b.r.pub.issue_order ?? 1e9)).map(item)))),
+      g.books.length ? h('div', { class: 'prod-issue' }, h('div', { class: 'prod-issue-h' }, 'الكتب'), h('ul', {}, g.books.map(item))) : null);
   }));
 }
 
 // value used for search / sort / filter
 function plainValue(table, row, f) {
   switch (f.type) {
-    case 'fk': return row[f.key] ? displayOf(f.ref, row[f.key]) : '';
+    case 'fk': return valueOf(row, f) ? displayOf(f.ref, valueOf(row, f)) : '';
+    case 'enum': return enumLabel(f, valueOf(row, f));
+    case 'computed': return computedText(row, f);
+    case 'date': return valueOf(row, f) ?? '';
     case 'link': return linkedIds(f, row.id).map((id) => displayOf(f.ref, id)).join('، ');
     case 'derived': return derivedIds(f, row.id).map((id) => displayOf(f.ref, id)).join('، ');
     case 'publication': return publicationText(row);
-    case 'production': return productionOf(row.id).map((g) => displayOf('journals', g.journal)).join('، ');
+    case 'production': return productionOf(row.id).map(groupLabel).join('، ');
     case 'contacts': return contactsOf(f, row.id).map((c) => c.value).join(' ');
     case 'user': return f.key === 'created_by' && !row[f.key] ? '' : userName(row[f.key]);
-    default: return row[f.key] ?? '';
+    default: return valueOf(row, f) ?? '';
   }
 }
 
@@ -203,8 +252,17 @@ const LINK_TABLES = new Set(['research_researchers', 'research_translators',
 
 async function loadTable(t) {
   const order = t in SELECT_ORDER ? SELECT_ORDER[t] : (LINK_TABLES.has(t) ? null : 'id');
-  S.data[t] = await api.selectAll(t, order);
+  S.data[t] = await api.selectAll(t, order, TABLES[t]?.select || '*');
   index(t);
+}
+// Re-read one research with its extension rows (after saving)
+export async function reloadResearch(id) {
+  const [fresh] = await api.select('researches', `id=eq.${id}`, TABLES.researches.select);
+  const list = S.data.researches;
+  const i = list.findIndex((r) => r.id === id);
+  if (fresh) { if (i >= 0) list[i] = fresh; else list.push(fresh); } else if (i >= 0) list.splice(i, 1);
+  index('researches');
+  return fresh;
 }
 export async function loadAll() {
   await Promise.all([...Object.keys(TABLES), ...AUX_TABLES].map(loadTable));
@@ -375,29 +433,82 @@ export function renderShell() {
 }
 
 // ============ grid ============
+// Ready-made views (researches only). Each view has its own columns and saved show/hide choices.
+const VIEW_FILTERS = {
+  all: () => true,
+  center: (r) => !!r.pub,
+  wip: (r) => !!r.sub && !r.pub && r.sub.stage !== 'rejected',
+  rejected: (r) => r.sub?.stage === 'rejected',
+  external: (r) => !r.pub && !r.sub,
+};
+export function viewsFor(table) {
+  if (table !== 'researches') return [];
+  return RESEARCH_VIEWS.filter((v) => !v.subOnly || seesSubmissions(S.me.role));
+}
+function currentView(table) {
+  const views = viewsFor(table);
+  if (!views.length) return null;
+  const ui = uiFor(table);
+  return views.find((v) => v.key === ui.view) || views[0];
+}
+const hiddenKey = (table, view) => `tajdid_hidden_v3_${table}${view ? `_${view.key}` : ''}`;
+// The hidden-field set of the current view (manual show/hide is kept per view)
+function hiddenSet(table) {
+  const ui = uiFor(table);
+  const view = currentView(table);
+  const k = view?.key || '_';
+  if (!ui.hidden[k]) {
+    const all = fieldsFor(S.me.role, table);
+    const saved = lsGet(hiddenKey(table, view), null);
+    const defaults = view ? all.filter((f) => !view.cols.includes(f.key)).map((f) => f.key) : all.filter((f) => f.hidden).map((f) => f.key);
+    ui.hidden[k] = new Set(saved ?? defaults);
+  }
+  return ui.hidden[k];
+}
+function saveHidden(table) { lsSet(hiddenKey(table, currentView(table)), [...hiddenSet(table)]); }
+function defaultHidden(table) {
+  const view = currentView(table); const all = fieldsFor(S.me.role, table);
+  return view ? all.filter((f) => !view.cols.includes(f.key)).map((f) => f.key) : all.filter((f) => f.hidden).map((f) => f.key);
+}
+// Visible fields, in the view's column order first
+function gridFields(table) {
+  const hidden = hiddenSet(table);
+  const view = currentView(table);
+  const list = fieldsFor(S.me.role, table).filter((f) => !hidden.has(f.key));
+  if (!view) return list;
+  const pos = (f) => { const i = view.cols.indexOf(f.key); return i < 0 ? 1e3 : i; };
+  return list.map((f, i) => [f, i]).sort((a, b) => pos(a[0]) - pos(b[0]) || a[1] - b[1]).map(([f]) => f);
+}
+
 function uiFor(table) {
   if (!S.ui[table]) {
-    const hiddenSaved = lsGet(`tajdid_hidden_v2_${table}`, null);
     S.ui[table] = {
-      search: '', sort: null, filters: [],
-      hidden: new Set(hiddenSaved ?? fieldsFor(S.me.role, table).filter((f) => f.hidden).map((f) => f.key)),
+      search: '', sort: null, filters: [], hidden: {},
+      view: table === 'researches' ? lsGet('tajdid_research_view', 'all') : null,
     };
   }
   return S.ui[table];
 }
 
-function visibleRows(table) {
+function visibleRows(table, viewKey) {
   const ui = uiFor(table);
   const fields = fieldsFor(S.me.role, table);
   let rows = [...(S.data[table] || [])];
+  const view = viewKey !== undefined ? viewsFor(table).find((v) => v.key === viewKey) : currentView(table);
+  if (view) rows = rows.filter(VIEW_FILTERS[view.key] || (() => true));
   const q = ui.search.trim().toLowerCase();
   if (q) rows = rows.filter((r) => fields.some((f) => String(plainValue(table, r, f)).toLowerCase().includes(q)));
   for (const flt of ui.filters) {
     const f = fields.find((x) => x.key === flt.key);
     if (!f || flt.value === '' || flt.value == null) continue;
-    if (f.type === 'fk') rows = rows.filter((r) => String(r[f.key] ?? '') === String(flt.value));
-    else if (f.type === 'publication') rows = rows.filter((r) => (flt.value === '__none' ? !researchJournal(r) : String(researchJournal(r)) === String(flt.value)));
-    else if (f.type === 'derived') rows = rows.filter((r) => flt.value === '__none' ? !derivedIds(f, r.id).length : derivedIds(f, r.id).map(String).includes(String(flt.value)));
+    if (f.type === 'fk' || f.type === 'enum') rows = rows.filter((r) => (flt.value === '__none' ? valueOf(r, f) == null : String(valueOf(r, f) ?? '') === String(flt.value)));
+    else if (f.type === 'publication') {
+      rows = rows.filter((r) => {
+        if (flt.value === '__none') return !r.pub;
+        if (flt.value === '__center') return isBook(r);
+        return String(researchJournal(r)) === String(flt.value);
+      });
+    } else if (f.type === 'derived') rows = rows.filter((r) => flt.value === '__none' ? !derivedIds(f, r.id).length : derivedIds(f, r.id).map(String).includes(String(flt.value)));
     else if (f.type === 'link') rows = rows.filter((r) => flt.value === '__none' ? !linkedIds(f, r.id).length : linkedIds(f, r.id).map(String).includes(String(flt.value)));
     else if (f.type === 'user') rows = rows.filter((r) => String(r[f.key] ?? '') === String(flt.value === '__none' ? '' : flt.value));
     else if (flt.value === '__empty') rows = rows.filter((r) => !String(plainValue(table, r, f)).trim());
@@ -406,13 +517,15 @@ function visibleRows(table) {
   if (ui.sort) {
     const f = fields.find((x) => x.key === ui.sort.key);
     const dir = ui.sort.dir;
-    rows.sort((a, b) => {
-      const va = plainValue(table, a, f); const vb = plainValue(table, b, f);
-      if (va === '' && vb !== '') return 1;
-      if (vb === '' && va !== '') return -1;
-      const c = (f.type === 'number') ? (Number(va) - Number(vb)) : String(va).localeCompare(String(vb), 'ar');
-      return c * dir;
-    });
+    if (f) {
+      rows.sort((a, b) => {
+        const va = plainValue(table, a, f); const vb = plainValue(table, b, f);
+        if (va === '' && vb !== '') return 1;
+        if (vb === '' && va !== '') return -1;
+        const c = (f.type === 'number') ? (Number(va) - Number(vb)) : String(va).localeCompare(String(vb), 'ar');
+        return c * dir;
+      });
+    }
   }
   return rows;
 }
@@ -430,16 +543,18 @@ function fkOptions(ref) {
 }
 
 function renderCell(table, row, f) {
-  const v = row[f.key];
+  const v = valueOf(row, f);
   switch (f.type) {
     case 'fk': return v ? h('span', { class: f.ref === 'journals' ? chipClass('journals', v) : 'chip' }, displayOf(f.ref, v)) : '';
-    case 'production': return productionOf(row.id).map((g) => h('span', { class: chipClass('journals', g.journal) }, displayOf('journals', g.journal),
+    case 'enum': return v ? h('span', { class: `chip enum ${f.options === 'STAGES' ? `st-${v === 'rejected' ? 'rejected' : (v === 'published' ? 'published' : 'wip')}` : ''}` }, enumLabel(f, v)) : '';
+    case 'computed': return computedCell(row, f);
+    case 'production': return productionOf(row.id).map((g) => h('span', { class: groupChip(g) }, groupLabel(g),
       h('small', { class: 'chip-count' }, [...g.issues.values()].reduce((n, l) => n + l.length, 0) + g.books.length)));
     case 'publication': {
+      if (isBook(row)) return [h('span', { class: 'chip center' }, CENTER_LIBRARY), h('small', { class: 'pub-rest' }, PUB_KINDS[row.pub.kind])];
       const j = researchJournal(row);
       if (!j) return '';
-      const rest = publicationText(row).split(' · ').slice(1).join(' · ') || 'كتاب / ترجمة';
-      return [h('span', { class: chipClass('journals', j) }, displayOf('journals', j)), h('small', { class: 'pub-rest' }, rest)];
+      return [h('span', { class: chipClass('journals', j) }, displayOf('journals', j)), h('small', { class: 'pub-rest' }, publicationText(row).split(' · ').slice(1).join(' · '))];
     }
     case 'link': return linkedIds(f, row.id).map((id) => h('span', { class: chipClass(f.ref, id) }, displayOf(f.ref, id)));
     case 'derived': return [...derivedCounts(f, row.id)].map(([id, n]) => h('span', { class: chipClass(f.ref, id), title: `${n} بحث` }, displayOf(f.ref, id), f.compute === 'journal_researches' ? null : h('small', { class: 'chip-count' }, n)));
@@ -456,8 +571,9 @@ function renderGrid(main, table) {
   const T = TABLES[table];
   const ui = uiFor(table);
   const role = S.me.role; const uid = S.me.id;
-  const fields = fieldsFor(role, table).filter((f) => !ui.hidden.has(f.key));
-  const rows = visibleRows(table);
+  const fields = gridFields(table);
+  const views = viewsFor(table);
+  const view = currentView(table);
 
   // toolbar
   const search = h('input', {
@@ -474,6 +590,10 @@ function renderGrid(main, table) {
     canInsert(role, table) ? h('button', { class: 'btn primary', onclick: () => openRecord(table, null) }, icon('plus', 16), `${T.single || 'سجل'} جديد`) : null);
 
   const filtersBar = ui.filters.length ? h('div', { class: 'filters-bar' }, ui.filters.map((flt, i) => filterRow(table, flt, i))) : null;
+  const viewsBar = views.length ? h('nav', { class: 'views-bar', role: 'tablist', 'aria-label': 'العروض' }, views.map((v) => h('button', {
+    class: `view-tab ${v.key === view.key ? 'on' : ''}`, role: 'tab', 'aria-selected': String(v.key === view.key),
+    onclick: () => { ui.view = v.key; lsSet('tajdid_research_view', v.key); ui.sort = null; renderShell(); },
+  }, v.label, h('small', { class: 'cnt' }, visibleRows(table, v.key).length)))) : null;
 
   // table
   const head = h('tr', {},
@@ -515,11 +635,11 @@ function renderGrid(main, table) {
         h('td', { class: 'rownum' }, icon('plus', 16)),
         h('td', { colspan: fields.length }, h('span', { class: 'add-row-label' }, `إضافة ${T.single || 'سجل'}`, h('kbd', {}, 'N')))));
     }
-    count.textContent = `${list.length} من ${S.data[table].length} سجل`;
+    count.textContent = `${list.length} من ${S.data[table].length} سجل${view ? ` · عرض «${view.label}»` : ''}`;
   }
   drawBody();
 
-  main.replaceChildren(toolbar, filtersBar || '',
+  main.replaceChildren(toolbar, viewsBar || '', filtersBar || '',
     h('div', { class: 'grid-wrap' }, h('table', { class: 'grid' }, h('thead', {}, head), tbody)),
     count);
   if (ui.search) { search.focus(); search.setSelectionRange(ui.search.length, ui.search.length); }
@@ -532,12 +652,16 @@ function startEdit(td, table, row, f) {
     if (!f.readonly) toast('ليس لديك صلاحية لتعديل هذا الحقل', 'warn');
     return;
   }
-  if (['link', 'longtext', 'contacts'].includes(f.type)) return openRecord(table, row, f.key);
+  // extension fields (publication, submission, bibliographic, original) are edited in the record window
+  if (['link', 'longtext', 'contacts'].includes(f.type) || f.ext) return openRecord(table, row, f.key);
   if (td.querySelector('input,select')) return;
   let input;
   if (f.type === 'fk') {
     input = h('select', {}, h('option', { value: '' }, '—'),
       fkOptions(f.ref).map((o) => h('option', { value: o.id, selected: String(o.id) === String(row[f.key]) }, o[TABLES[f.ref].display])));
+  } else if (f.type === 'enum') {
+    input = h('select', {}, h('option', { value: '' }, '—'),
+      Object.entries(ENUMS[f.options]).map(([k, label]) => h('option', { value: k, selected: k === row[f.key] }, label)));
   } else {
     input = h('input', { type: f.type === 'number' ? 'number' : 'text', value: row[f.key] ?? '', dir: f.ltr || f.type === 'url' ? 'ltr' : 'auto' });
   }
@@ -552,6 +676,7 @@ function startEdit(td, table, row, f) {
     if (save) {
       let val = input.value;
       if (f.type === 'number' || f.type === 'fk') val = val === '' ? null : Number(val);
+      else if (f.type === 'enum') val = val || null;
       else val = val.trim() === '' ? null : val.trim();
       if (f.required && val == null) { toast('هذا الحقل إلزامي', 'warn'); cell.replaceChildren(...[renderCell(table, row, f)].flat()); return; }
       if (val !== (row[f.key] ?? null)) {
@@ -569,7 +694,7 @@ function startEdit(td, table, row, f) {
     if (e.key === 'Escape') finish(false);
   });
   input.addEventListener('blur', () => finish(true));
-  if (f.type === 'fk') input.addEventListener('change', () => finish(true));
+  if (f.type === 'fk' || f.type === 'enum') input.addEventListener('change', () => finish(true));
 }
 
 // ---- filter & field menus ----
@@ -586,20 +711,22 @@ function popover(anchor, content) {
 }
 
 function fieldsButton(table, rerender) {
-  const ui = uiFor(table);
-  const n = ui.hidden.size;
-  const defaults = fieldsFor(S.me.role, table).filter((f) => f.hidden).map((f) => f.key);
-  const custom = n !== defaults.length || defaults.some((k) => !ui.hidden.has(k));
+  const hidden = hiddenSet(table);
+  const n = hidden.size;
+  const defaults = defaultHidden(table);
+  const custom = n !== defaults.length || defaults.some((k) => !hidden.has(k));
+  const view = currentView(table);
   return h('button', {
     class: `btn ${custom ? 'active' : ''}`,
     onclick: (e) => popover(e.currentTarget, h('div', { class: 'menu' },
-      h('div', { class: 'menu-title' }, 'إظهار / إخفاء الحقول'),
+      h('div', { class: 'menu-title' }, view ? `إظهار / إخفاء الحقول (عرض «${view.label}»)` : 'إظهار / إخفاء الحقول'),
+      custom ? h('button', { class: 'btn ghost sm', onclick: () => { uiFor(table).hidden[view?.key || '_'] = new Set(defaults); saveHidden(table); rerender(); } }, 'رجوع لأعمدة العرض') : null,
       fieldsFor(S.me.role, table).map((f) => h('label', { class: 'check' },
         h('input', {
-          type: 'checkbox', checked: !ui.hidden.has(f.key),
+          type: 'checkbox', checked: !hidden.has(f.key),
           onchange: (ev) => {
-            if (ev.target.checked) ui.hidden.delete(f.key); else ui.hidden.add(f.key);
-            lsSet(`tajdid_hidden_v2_${table}`, [...ui.hidden]);
+            if (ev.target.checked) hidden.delete(f.key); else hidden.add(f.key);
+            saveHidden(table);
             rerender();
           },
         }), f.label)))),
@@ -623,8 +750,14 @@ function filterRow(table, flt, i) {
     const ref = f.type === 'publication' ? 'journals' : f.ref;
     valueEl = h('select', { onchange: (e) => { flt.value = e.target.value; renderShell(); } },
       h('option', { value: '' }, 'اختر…'),
-      f.type !== 'fk' ? h('option', { value: '__none', selected: flt.value === '__none' }, '(فارغ)') : null,
+      f.type !== 'fk' || f.ext ? h('option', { value: '__none', selected: flt.value === '__none' }, '(فارغ)') : null,
+      f.type === 'publication' ? h('option', { value: '__center', selected: flt.value === '__center' }, CENTER_LIBRARY) : null,
       fkOptions(f.ref === 'issues' ? 'issues' : ref).map((o) => h('option', { value: o.id, selected: String(o.id) === String(flt.value) }, o[TABLES[ref].display])));
+  } else if (f.type === 'enum') {
+    valueEl = h('select', { onchange: (e) => { flt.value = e.target.value; renderShell(); } },
+      h('option', { value: '' }, 'اختر…'),
+      h('option', { value: '__none', selected: flt.value === '__none' }, '(فارغ)'),
+      Object.entries(ENUMS[f.options]).map(([k, label]) => h('option', { value: k, selected: k === flt.value }, label)));
   } else if (f.type === 'user') {
     valueEl = h('select', { onchange: (e) => { flt.value = e.target.value; renderShell(); } },
       h('option', { value: '' }, 'اختر…'),
@@ -776,25 +909,34 @@ export function openRecord(table, row, focusKey, defaults = null) {
   const T = TABLES[table];
   const role = S.me.role; const uid = S.me.id;
   const isNew = !row;
-  const draft = { ...(row || defaults || {}) };
+  const { pub: pubDefaults, ...baseDefaults } = defaults || {};
+  const draft = { ...(row || baseDefaults) };
   const links = {}; const contacts = {};
   let dirty = false;
+  let ext = null; // conditional research sections (research.js)
   const form = h('div', { class: 'record' });
   const fieldEls = {};
 
   for (const f of fieldsFor(role, table)) {
     if (isNew && f.readonly) continue;
+    // extension & computed research fields are handled by the conditional sections
+    if (f.ext || f.type === 'computed' || (table === 'researches' && f.type === 'publication')) continue;
     const editable = isNew ? (!f.readonly && (!f.adminOnly || ['owner', 'admin'].includes(role)) && !(f.type === 'link' && f.ref === 'researches' && !['owner', 'admin'].includes(role)))
       : canEditField(role, uid, table, row, f);
     let control;
     switch (f.type) {
       case 'link':
         links[f.key] = isNew ? [] : linkedIds(f, row.id);
-        control = linkPicker(f, links[f.key], () => { dirty = true; }, editable);
+        control = linkPicker(f, links[f.key], () => { dirty = true; ext?.refresh(); }, editable);
         break;
       case 'contacts':
         contacts[f.key] = isNew ? [] : contactsOf(f, row.id).map((c) => ({ ...c }));
         control = contactsEditor(f, contacts[f.key], editable);
+        break;
+      case 'enum':
+        control = h('select', { disabled: !editable, onchange: (e) => { draft[f.key] = e.target.value || null; } },
+          h('option', { value: '' }, '—'),
+          Object.entries(ENUMS[f.options]).map(([k, label]) => h('option', { value: k, selected: k === draft[f.key] }, label)));
         break;
       case 'fk':
         control = h('select', { disabled: !editable, onchange: (e) => { draft[f.key] = e.target.value ? Number(e.target.value) : null; } },
@@ -834,41 +976,25 @@ export function openRecord(table, row, focusKey, defaults = null) {
     const els = keys.filter((k) => fieldEls[k] && !used.has(k)).map((k) => { used.add(k); return fieldEls[k]; });
     if (els.length) form.append(h('section', { class: `form-section ${cls}` }, title ? h('h4', {}, title) : null, h('div', { class: 'record-grid' }, els)));
   };
-  if (layout) layout.forEach(([title, keys]) => section(title, keys));
+  if (table === 'researches') {
+    ext = researchExtSections({
+      row, isNew, pubDefaults,
+      canEditBase: isNew ? canInsert(role, table) : canEditRow(role, uid, table, row),
+      translators: () => links.translators || [],
+      onChange: () => { dirty = true; },
+    });
+  }
+  if (layout) layout.forEach(([title, keys]) => (title === '@ext' ? (ext && form.append(...ext.sections)) : section(title, keys)));
   const metaKeys = fieldsFor(role, table).filter((f) => f.type === 'user' || f.type === 'date').map((f) => f.key);
   section(layout ? 'حقول أخرى' : '', fieldsFor(role, table).map((f) => f.key).filter((k) => !metaKeys.includes(k)));
   if (!isNew) { const lf = linkedFilesSection(table, row); if (lf) form.append(lf); }
   section('معلومات السجل', metaKeys, 'meta');
 
-  // Articles belong to an issue (with pages and order); books & translations to a journal directly
-  if (table === 'researches' && fieldEls.issue_id) {
-    const issueSel = fieldEls.issue_id.querySelector('select');
-    const journalSel = fieldEls.journal_id?.querySelector('select');
-    const issueOnly = ['issue_order', 'start_page', 'end_page'].map((k) => fieldEls[k]?.querySelector('input')).filter(Boolean);
-    const lockedIssue = issueSel.disabled; const lockedJournal = journalSel?.disabled;
-    const sync = () => {
-      const hasIssue = !!issueSel.value;
-      if (journalSel) {
-        if (hasIssue && journalSel.value) { journalSel.value = ''; draft.journal_id = null; }
-        journalSel.disabled = lockedJournal || hasIssue;
-      }
-      issueSel.disabled = lockedIssue || !!journalSel?.value;
-      for (const inp of issueOnly) {
-        if (!hasIssue && inp.value) { inp.value = ''; draft[inp.closest('.field').dataset.key] = null; }
-        inp.disabled = lockedIssue || !hasIssue;
-      }
-    };
-    issueSel.addEventListener('change', sync);
-    journalSel?.addEventListener('change', sync);
-    sync();
-    form.querySelector('[data-key="issue_id"]')?.append(h('small', { class: 'hint' }, 'للمقالات. اترك العدد فارغاً للكتب والمترجمات واختر المجلة.'));
-  }
-
   const rowEditable = isNew ? canInsert(role, table) : canEditRow(role, uid, table, row);
   const anyLinkEditable = !isNew && T.fields.some((f) => f.type === 'link' && canEditField(role, uid, table, row, f));
   const saveBtn = h('button', { class: 'btn primary', onclick: () => save() }, isNew ? 'إضافة' : 'حفظ التعديلات');
   const footer = [
-    (rowEditable || anyLinkEditable) ? saveBtn : h('span', { class: 'muted' }, 'للعرض فقط'),
+    (rowEditable || anyLinkEditable || ext?.editable) ? saveBtn : h('span', { class: 'muted' }, 'للعرض فقط'),
     !isNew && canDelete(role, table) ? h('button', { class: 'btn danger', onclick: () => remove() }, icon('trash', 16), 'حذف') : null,
   ];
   form.addEventListener('input', () => { dirty = true; });
@@ -890,9 +1016,10 @@ export function openRecord(table, row, focusKey, defaults = null) {
     saveBtn.disabled = true;
     try {
       // 1) scalar fields
+      ext?.validate();
       const values = {};
       for (const f of T.fields) {
-        if (['link', 'contacts', 'user', 'date'].includes(f.type) || f.readonly) continue;
+        if (['link', 'contacts', 'user', 'date', 'computed'].includes(f.type) || f.readonly || f.ext) continue;
         let v = draft[f.key];
         if (f.type === 'number') v = v === '' || v == null ? null : Number(v);
         else if (typeof v === 'string') v = v.trim() === '' ? null : v.trim();
@@ -936,6 +1063,11 @@ export function openRecord(table, row, focusKey, defaults = null) {
           }
         }
         await loadTable(f.table);
+      }
+      // 4) conditional research sections (center publication, submission, bibliographic, original)
+      if (ext) {
+        await ext.save(saved.id);
+        await reloadResearch(saved.id);
       }
       // role assignments are maintained by triggers
       if (['researches', 'persons'].includes(table)) await loadTable('person_role_assignments');
