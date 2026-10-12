@@ -1,11 +1,12 @@
 import * as api from './api.js';
 import {
-  TABLES, AUX_TABLES, ROLE_LABELS, FORM_LAYOUT, FULL_WIDTH, JOURNAL_COLORS, isTableVisible, fieldsFor, canInsert, canEditRow, canEditField, canDelete,
+  TABLES, AUX_TABLES, ROLE_LABELS, FORM_LAYOUT, FULL_WIDTH, JOURNAL_COLORS, isTableVisible, fieldsFor, setManagedJournals, canInsert, canEditRow, canEditField, canDelete,
 } from './schema.js';
 import { renderStats } from './stats.js';
 import { icon } from './icons.js';
 import { renderUsers } from './users.js';
 import { renderProfile } from './profile.js';
+import { renderJournal, journalNavVisible } from './journal.js';
 
 // ============ state ============
 export const S = {
@@ -168,6 +169,7 @@ async function loadTable(t) {
 export async function loadAll() {
   await Promise.all([...Object.keys(TABLES), ...AUX_TABLES].map(loadTable));
   index('issues');
+  if (S.me) setManagedJournals((S.data.journal_editors || []).filter((j) => j.user_id === S.me.id).map((j) => j.journal_id));
 }
 
 // ============ theme ============
@@ -204,7 +206,7 @@ async function boot() {
     await loadAll();
     S.me = S.byId.profiles.get(S.me.id);
     S.view = lsGet('tajdid_view', 'researches');
-    if ((!TABLES[S.view] && !['stats', 'users', 'profile'].includes(S.view)) || (TABLES[S.view] && !isTableVisible(S.me.role, S.view))) S.view = 'researches';
+    if ((!TABLES[S.view] && !['stats', 'users', 'profile', 'journal'].includes(S.view)) || (TABLES[S.view] && !isTableVisible(S.me.role, S.view))) S.view = 'researches';
     renderShell();
   } catch (e) {
     toast(e.message, 'err');
@@ -306,6 +308,7 @@ export function renderShell() {
       h('div', {}, h('img', { class: 'callig', src: 'assets/calligraphy-light.png', alt: 'مركز تجديد للفكر والثقافة' }), h('small', {}, 'قاعدة بيانات الأبحاث'))),
     h('nav', {},
       h('div', { class: 'nav-title' }, 'الجداول'), groups.main,
+      journalNavVisible() ? [h('div', { class: 'nav-title' }, 'مجلتي'), navItem('journal', 'journal', S.me.role === 'editor' ? 'مجلتي' : 'المجلات والأعداد')] : null,
       ['owner', 'admin', 'editor'].includes(role) ? [h('div', { class: 'nav-title' }, 'المتابعة'), navItem('stats', 'chart', 'الإحصائيات')] : null,
       h('div', { class: 'nav-title' }, 'القوائم'), groups.lists,
       role === 'owner' ? [h('div', { class: 'nav-title' }, 'الإدارة'), navItem('users', 'users', 'المستخدمون', pendingUsers ? `${pendingUsers} جديد` : null)] : null),
@@ -324,6 +327,7 @@ export function renderShell() {
     sidebar, main));
 
   if (S.view === 'profile') renderProfile(main);
+  else if (S.view === 'journal') renderJournal(main);
   else if (S.view === 'stats') renderStats(main);
   else if (S.view === 'users') renderUsers(main);
   else renderGrid(main, S.view);
@@ -725,11 +729,11 @@ function contactsEditor(field, items, editable) {
   return box;
 }
 
-export function openRecord(table, row, focusKey) {
+export function openRecord(table, row, focusKey, defaults = null) {
   const T = TABLES[table];
   const role = S.me.role; const uid = S.me.id;
   const isNew = !row;
-  const draft = { ...(row || {}) };
+  const draft = { ...(row || defaults || {}) };
   const links = {}; const contacts = {};
   let dirty = false;
   const form = h('div', { class: 'record' });

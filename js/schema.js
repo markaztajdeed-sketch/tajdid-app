@@ -115,9 +115,14 @@ const ADMIN_LISTS = ['countries', 'languages', 'research_types', 'contact_types'
 const SHARED = ['persons', 'publishers', 'topics', 'tags'];
 // A journal manager adds researches, people and publishers, and edits only what they created
 const EDITOR_TABLES = ['researches', 'persons', 'publishers'];
+// Journals the signed-in editor manages (set by the app after loading journal_editors)
+let managed = new Set();
+export function setManagedJournals(ids) { managed = new Set(ids); }
+export const managesJournal = (role, jid) => role === 'owner' || role === 'admin' || (role === 'editor' && managed.has(jid));
 
 export function canInsert(role, table) {
   if (role === 'owner' || role === 'admin') return true;
+  if (table === 'issues') return role === 'editor' && managed.size > 0;
   if (role === 'data_entry') return table === 'researches' || SHARED.includes(table);
   if (role === 'editor') return EDITOR_TABLES.includes(table);
   return false;
@@ -125,6 +130,7 @@ export function canInsert(role, table) {
 
 export function canEditRow(role, uid, table, row) {
   if (role === 'owner' || role === 'admin') return true;
+  if (table === 'issues') return role === 'editor' && (!row || managed.has(row.journal_id));
   if (role === 'editor') return EDITOR_TABLES.includes(table) && (!row || row.created_by === uid);
   if (role !== 'data_entry') return false;
   if (table === 'researches') return !row || row.created_by === uid;

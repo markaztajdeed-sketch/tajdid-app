@@ -426,3 +426,45 @@ h4.sub { margin: 18px 0 8px; font: 700 13px 'Almarai', 'Tajawal', sans-serif; co
 .pub-rest { color: var(--text-2); font-size: 12px; }
 td.t-publication .cell { align-items: center; }
 .field .hint { display: block; color: var(--muted); font-size: 11.5px; margin-top: 3px; }
+
+/* «مجلتي» */
+.journal-bar { gap: 10px; }
+.journal-bar h1 { margin-left: 8px; }
+.chip.big { font-size: 15px; padding: 3px 12px; }
+.journal-switch { width: auto; min-width: 140px; padding: 5px 10px; }
+.tabs { display: flex; gap: 4px; margin-inline-start: auto; flex-wrap: wrap; }
+.tab { display: inline-flex; align-items: center; gap: 6px; border: 1px solid transparent; background: transparent; padding: 6px 12px; border-radius: 8px; cursor: pointer; color: var(--text-2); }
+.tab:hover { background: var(--surface-2); }
+.tab.on { background: var(--accent-soft); color: var(--accent-ink); border-color: var(--accent-soft); font-weight: 600; box-shadow: inset 0 -2px 0 var(--gold); }
+.journal-scroll { flex: 1; overflow: auto; }
+.journal-page { padding: 18px; display: grid; gap: 16px; align-content: start; }
+.section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.section-head h2, .issue-info h2 { margin: 0; font: 700 17px 'Almarai', 'Tajawal', sans-serif; }
+.issue-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+.issue-list.compact { grid-template-columns: 1fr; gap: 6px; }
+.issue-card { display: flex; align-items: center; gap: 12px; text-align: right; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); cursor: pointer; color: var(--text); }
+.issue-card:hover { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.issue-meta { display: grid; gap: 2px; }
+.issue-num { display: inline-grid; place-items: center; width: 42px; height: 52px; border-radius: 6px; font: 700 20px 'Almarai', sans-serif; flex: none; background: var(--chip-journals); color: var(--chip-journals-ink); border: 1px solid var(--border); }
+.issue-num.big { width: 110px; height: 140px; font-size: 44px; }
+.issue-num.jc-olive { background: linear-gradient(160deg, #d9b56c, #afa518); color: #fff; border: 0; }
+.issue-num.jc-blue { background: linear-gradient(160deg, #1b4a9e, #11359b); color: #fff; border: 0; }
+.issue-num.jc-maroon { background: linear-gradient(160deg, #9a4a5a, #7c0e2f); color: #fff; border: 0; }
+.issue-head { display: flex; gap: 18px; align-items: flex-start; }
+.issue-cover { display: grid; gap: 6px; justify-items: center; text-align: center; }
+.issue-cover small { max-width: 120px; font-size: 11px; }
+.issue-info { display: grid; gap: 6px; flex: 1; }
+.issue-info p { margin: 0; }
+.issue-title { font-size: 15px; font-weight: 600; }
+.row-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.btn.back { justify-self: start; }
+.grid-wrap.flat { border: 1px solid var(--border); border-radius: var(--radius); flex: none; }
+table.grid.simple { width: 100%; table-layout: auto; }
+.grid.simple th { cursor: default; position: static; }
+.grid.simple td { padding: 9px 10px; vertical-align: middle; }
+.grid.simple td.num { font-variant-numeric: tabular-nums; color: var(--text-2); white-space: nowrap; }
+.grid.simple tr.clickable { cursor: pointer; }
+.grid.simple .sub { display: block; font-size: 12px; }
+.empty-state { display: grid; gap: 10px; justify-items: start; }
+.muted-card { background: var(--surface-2); border-style: dashed; }
+@media (max-width: 820px) { .tabs { margin-inline-start: 0; width: 100%; } .issue-head { flex-direction: column; } }
