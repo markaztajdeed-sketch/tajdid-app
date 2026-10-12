@@ -7,6 +7,7 @@ import { icon } from './icons.js';
 import { renderUsers } from './users.js';
 import { renderProfile } from './profile.js';
 import { renderJournal, journalNavVisible } from './journal.js';
+import { renderTrash } from './files.js';
 
 // ============ state ============
 export const S = {
@@ -245,7 +246,7 @@ async function boot() {
     await loadAll();
     S.me = S.byId.profiles.get(S.me.id);
     S.view = lsGet('tajdid_view', 'researches');
-    if ((!TABLES[S.view] && !['stats', 'users', 'profile', 'journal'].includes(S.view)) || (TABLES[S.view] && !isTableVisible(S.me.role, S.view))) S.view = 'researches';
+    if ((!TABLES[S.view] && !['stats', 'users', 'profile', 'journal', 'trash'].includes(S.view)) || (S.view === 'trash' && S.me.role !== 'owner') || (TABLES[S.view] && !isTableVisible(S.me.role, S.view))) S.view = 'researches';
     renderShell();
   } catch (e) {
     toast(e.message, 'err');
@@ -350,7 +351,7 @@ export function renderShell() {
       journalNavVisible() ? [h('div', { class: 'nav-title' }, 'مجلتي'), navItem('journal', 'journal', S.me.role === 'editor' ? 'مجلتي' : 'المجلات والأعداد')] : null,
       ['owner', 'admin', 'editor'].includes(role) ? [h('div', { class: 'nav-title' }, 'المتابعة'), navItem('stats', 'chart', 'الإحصائيات')] : null,
       h('div', { class: 'nav-title' }, 'القوائم'), groups.lists,
-      role === 'owner' ? [h('div', { class: 'nav-title' }, 'الإدارة'), navItem('users', 'users', 'المستخدمون', pendingUsers ? `${pendingUsers} جديد` : null)] : null),
+      role === 'owner' ? [h('div', { class: 'nav-title' }, 'الإدارة'), navItem('users', 'users', 'المستخدمون', pendingUsers ? `${pendingUsers} جديد` : null), navItem('trash', 'trash', 'السلة')] : null),
     themeSwitch(),
     h('div', { class: 'me' },
       h('button', {
@@ -369,6 +370,7 @@ export function renderShell() {
   else if (S.view === 'journal') renderJournal(main);
   else if (S.view === 'stats') renderStats(main);
   else if (S.view === 'users') renderUsers(main);
+  else if (S.view === 'trash') renderTrash(main);
   else renderGrid(main, S.view);
 }
 

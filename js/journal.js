@@ -4,7 +4,7 @@ import {
   S, h, displayOf, chipClass, openRecord, renderShell, lsGet, lsSet, linkedIds, subtitleOf,
 } from './app.js';
 import { canInsert, canEditRow, managesJournal } from './schema.js';
-import { filesTab } from './files.js';
+import { filesTab, issueCover, issueFilesCard } from './files.js';
 
 const TABS = [['overview', 'نظرة عامة', 'chart'], ['issues', 'الأعداد', 'journal'], ['books', 'الكتب والمترجمات', 'book'], ['people', 'الأشخاص', 'users'], ['files', 'الملفات', 'folder']];
 const PEOPLE_LINKS = [
@@ -129,8 +129,7 @@ function issuePage(j, issue) {
   return h('div', { class: 'journal-page' },
     h('button', { class: 'btn ghost back', onclick: () => go({ issueId: null, journalTab: 'issues' }) }, '→ كل الأعداد'),
     h('div', { class: 'issue-head card' },
-      h('div', { class: 'issue-cover' }, h('span', { class: `issue-num big ${chipClass('journals', j.id).replace('chip ', '')}` }, issue.number),
-        h('small', { class: 'muted' }, 'الغلاف يُضاف مع دفعة الملفات')),
+      issueCover(j, issue, h('span', { class: `issue-num big ${chipClass('journals', j.id).replace('chip ', '')}` }, issue.number)),
       h('div', { class: 'issue-info' },
         h('h2', {}, `${j.name} · العدد ${issue.number}`),
         issue.title ? h('p', { class: 'issue-title' }, issue.title) : null,
@@ -141,9 +140,7 @@ function issuePage(j, issue) {
             ? h('button', { class: 'btn primary', onclick: () => openRecord('researches', null, 'title', { issue_id: issue.id, issue_order: rows.length + 1 }) }, icon('plus', 16), 'مقالة جديدة في هذا العدد') : null,
           canEdit ? h('button', { class: 'btn', onclick: () => openRecord('issues', issue) }, 'تعديل بيانات العدد') : null))),
     h('section', { class: 'card' }, h('h3', {}, 'المقالات حسب ترتيبها في العدد'), articleTable(issue, rows)),
-    managesJournal(S.me.role, j.id) ? h('section', { class: 'card' }, h('h3', {}, 'ملفات العدد'),
-      h('p', { class: 'muted' }, 'لكل عدد مجلد خاص داخل «2.2 الأبحاث المنشورة». ارفع إليه المقالات والغلاف وملفات الإخراج.'),
-      h('button', { class: 'btn', onclick: () => go({ journalTab: 'files', issueId: null, fileFolderIssue: issue.id }) }, icon('folder', 16), 'فتح مجلد العدد')) : null);
+    issueFilesCard(j, issue, go));
 }
 
 // ---------- books & translations ----------

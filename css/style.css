@@ -528,3 +528,15 @@ table.grid.simple { width: 100%; table-layout: auto; }
   .files-tree { position: static; max-height: 260px; }
   .files-table th:nth-child(3), .files-table td:nth-child(3), .files-table th:nth-child(4), .files-table td:nth-child(4) { display: none; }
 }
+.issue-cover { position: relative; display: grid; justify-items: center; gap: 8px; align-content: start; }
+.cover-img { width: 150px; aspect-ratio: 3 / 4; object-fit: cover; border-radius: 8px; box-shadow: var(--shadow); background: var(--surface-2); }
+.cover-btn { white-space: nowrap; }
+.card.drag { outline: 2px dashed var(--accent); background: var(--accent-soft); }
+.form-rows.two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.file-details { display: grid; gap: 18px; }
+.file-details select { width: 100%; }
+.file-details .section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.files-table tr.current td { background: var(--accent-soft); }
+.chip.ver.link { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.btn.sm.danger { color: var(--danger); }
+@media (max-width: 760px) { .form-rows.two { grid-template-columns: 1fr; } }

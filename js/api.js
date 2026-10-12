@@ -221,6 +221,17 @@ export async function uploadPrivate(bucket, path, file, onProgress) {
   });
 }
 
+// Delete objects from storage (owner only by policy)
+export async function storageRemove(bucket, paths) {
+  const token = await freshToken();
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}`, {
+    method: 'DELETE',
+    headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prefixes: paths }),
+  });
+  return parse(res);
+}
+
 // Temporary link (default 10 minutes). download = file name to force download.
 export async function signedUrl(bucket, path, { expiresIn = 600, download = null } = {}) {
   const token = await freshToken();
