@@ -3,7 +3,7 @@
 import { icon } from './icons.js';
 import * as api from './api.js';
 import { S, h, toast, openModal, userName, displayOf, researchJournal, renderShell, chipClass } from './app.js';
-import { managesJournal } from './schema.js';
+import { managesJournal, STAGES } from './schema.js';
 
 const FL_BUCKET = 'journal-files';
 const flCache = { jid: null, folders: [], files: [], loading: null, error: null };
@@ -59,6 +59,13 @@ function flSize(n) {
 }
 const flDate = (d) => (d ? new Date(d).toLocaleDateString('ar-LB', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
 const flCanEditFolder = (j, f) => managesJournal(S.me.role, j.id) && (f.kind === 'custom' || ['owner', 'admin'].includes(S.me.role));
+
+// Version note = the current submission stage of the linked research («مستلَم»، «قيد التدقيق»، «مدقَّق»…),
+// so the file before and after proofreading are two versions of the same file
+export function flStageNote(researchId) {
+  const r = researchId ? S.byId.researches?.get(researchId) : null;
+  return r?.sub ? (STAGES[r.sub.stage] ?? null) : null;
+}
 
 // ---------- small dialogs ----------
 function flAsk(title, label, value = '') {
@@ -121,7 +128,7 @@ async function flUpload(j, folder, fileList, panel, redraw) {
         row = await api.insertRow('files', { folder_id: folder.id, journal_id: j.id, name: file.name, issue_id: folder.issue_id ?? null });
         flCache.files.push(row);
       }
-      const v = await api.insertRow('file_versions', { file_id: row.id, path, size: file.size, mime: file.type || null });
+      const v = await api.insertRow('file_versions', { file_id: row.id, path, size: file.size, mime: file.type || null, note: flStageNote(row.research_id) });
       item.classList.add('done'); status.textContent = v.version > 1 ? `تم · نسخة ${v.version}` : 'تم';
     } catch (e) {
       item.classList.add('fail'); status.textContent = e.message;
@@ -167,7 +174,7 @@ const flIsImage = (f) => /\.(jpe?g|png|webp|gif)$/i.test(f.name) || /^image\//.t
 async function flAddVersion(file, blob, panel, extra = {}) {
   const path = flObjectPath(file.journal_id, file.name);
   await api.uploadPrivate(FL_BUCKET, path, blob, extra.onProgress);
-  return api.insertRow('file_versions', { file_id: file.id, path, size: blob.size, mime: blob.type || null, note: extra.note || null });
+  return api.insertRow('file_versions', { file_id: file.id, path, size: blob.size, mime: blob.type || null, note: extra.note || flStageNote(file.research_id) });
 }
 
 function flDetails(j, file, redraw) {
@@ -394,7 +401,7 @@ export function linkedFilesSection(table, row) {
         const [same] = await api.select('files', `folder_id=eq.${folder.id}&name=eq.${encodeURIComponent(file.name)}&deleted_at=is.null`);
         const f = same || await api.insertRow('files', { folder_id: folder.id, journal_id: issue.journal_id, name: file.name, issue_id: issue.id, research_id: row.id });
         if (same && !same.research_id) await api.updateRows('files', { id: same.id }, { research_id: row.id });
-        await api.insertRow('file_versions', { file_id: f.id, path, size: file.size, mime: file.type || null });
+        await api.insertRow('file_versions', { file_id: f.id, path, size: file.size, mime: file.type || null, note: flStageNote(row.id) });
       }
       status.textContent = 'تم الرفع'; flReset(); draw();
     } catch (e) { status.textContent = ''; toast(e.message, 'err'); }
@@ -402,6 +409,32 @@ export function linkedFilesSection(table, row) {
   draw();
   return sec;
 }
+
+// Upload files for a research into a fixed folder of its journal (e.g. '2.1' الأبحاث غير المنشورة).
+// A file with the same name in that folder becomes a new version; the version note is the submission stage.
+export async function flUploadToCode(jid, code, research, fileList, onProgress) {
+  const [folder] = await api.select('folders', `journal_id=eq.${jid}&code=eq.${encodeURIComponent(code)}&kind=eq.fixed&deleted_at=is.null`);
+  if (!folder) throw new api.ApiError('لم يُعثر على المجلد في هذه المجلة');
+  const out = [];
+  for (const file of [...fileList]) {
+    if (file.size > api.MAX_FILE_MB * 1024 * 1024) throw new api.ApiError(`«${file.name}» أكبر من ${api.MAX_FILE_MB} ميغابايت`);
+    const path = flObjectPath(jid, file.name);
+    await api.uploadPrivate(FL_BUCKET, path, file, (p) => onProgress?.(file, p));
+    const [same] = await api.select('files', `folder_id=eq.${folder.id}&name=eq.${encodeURIComponent(file.name)}&deleted_at=is.null`);
+    const f = same || await api.insertRow('files', { folder_id: folder.id, journal_id: jid, name: file.name, research_id: research.id });
+    if (same && !same.research_id) await api.updateRows('files', { id: same.id }, { research_id: research.id });
+    const v = await api.insertRow('file_versions', { file_id: f.id, path, size: file.size, mime: file.type || null, note: flStageNote(research.id) });
+    out.push({ file: f, version: v.version });
+  }
+  flReset();
+  return out;
+}
+// Files linked to several researches (for the rejected archive)
+export async function flFilesForResearches(ids) {
+  if (!ids.length) return [];
+  return (await api.select('files', `research_id=in.(${ids.join(',')})&deleted_at=is.null&order=name`, FL_COLS)).map(flNormalize);
+}
+export const flOpenFile = (f, download = false) => flOpen(f, download);
 
 // Small cover image for issue cards (falls back to the colored number)
 export function issueThumb(issue, fallback) {

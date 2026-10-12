@@ -7,6 +7,7 @@ import { icon } from './icons.js';
 import * as api from './api.js';
 import { S, h, displayOf, userName } from './app.js';
 import { PUB_KINDS, STAGES, CENTER_LIBRARY, managesJournal, pubKindsFor, seesSubmissions } from './schema.js';
+import { sbStageControls, sbTimeline, sbOfferUpload } from './submissions.js';
 
 const RX_PUB_COLS = ['kind', 'issue_id', 'start_page', 'end_page', 'issue_order'];
 const RX_BIB_COLS = ['isbn', 'doi', 'pages'];
@@ -22,7 +23,7 @@ const rxEmpty = (o, cols) => cols.every((c) => o[c] == null || o[c] === '');
 const rxFmt = (d) => (d ? new Date(d).toLocaleDateString('ar-LB', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
 
 // DOM replaceChildren() turns null into the text "null" — drop empty parts first
-const rxSet = (el, ...parts) => el.replaceChildren(...parts.flat().filter((x) => x != null && x !== false));
+const rxSet = (el, ...parts) => el.replaceChildren(...parts.flat(Infinity).filter((x) => x != null && x !== false));
 function rxField(label, control, full = false) {
   return h('div', { class: `field ${full ? 'full' : ''}` }, h('label', {}, label), control);
 }
@@ -108,7 +109,6 @@ export function researchExtSections({ row, isNew, pubDefaults, canEditBase, tran
   // ---- «الاستلام» ----
   const subBody = h('div', {});
   const subSec = h('section', { class: 'form-section ext', 'data-ext': 'sub' }, h('h4', {}, 'الاستلام'), subBody);
-  const timeline = h('div', { class: 'timeline' });
   function drawSub() {
     subSec.hidden = !subVisible;
     if (!subVisible) return;
@@ -123,28 +123,32 @@ export function researchExtSections({ row, isNew, pubDefaults, canEditBase, tran
       return;
     }
     const s = st.sub;
+    const existing = !!row?.sub;
     const rejected = s.stage === 'rejected';
+    const journalOpts = (existing && !myJournals.some((j) => j.id === s.journal_id) ? [...myJournals, { id: s.journal_id, name: displayOf('journals', s.journal_id) }] : myJournals).map((j) => [j.id, j.name]);
     rxSet(subBody, h('div', { class: 'record-grid' },
-      rxField('المجلة', rxSelect((row?.sub && !myJournals.some((j) => j.id === s.journal_id) ? [...myJournals, { id: s.journal_id, name: displayOf('journals', s.journal_id) }] : myJournals).map((j) => [j.id, j.name]),
-        s.journal_id, (v) => { s.journal_id = rxNum(v); changed(); }, !can)),
+      rxField('المجلة', rxSelect(journalOpts, s.journal_id, (v) => { s.journal_id = rxNum(v); changed(); }, !can)),
       rxField('تاريخ الاستلام', rxInput('date', s.received_at, (v) => { s.received_at = v || null; changed(); }, !can)),
-      rxField('المرحلة', rxSelect(Object.entries(STAGES), s.stage, (v) => { s.stage = v || 'received'; if (s.stage !== 'rejected') s.rejection_reason = null; changed(); drawSub(); }, !can, null)),
-      rejected ? rxField('سبب الرفض', rxInput('text', s.rejection_reason, (v) => { s.rejection_reason = v; changed(); }, !can), true) : null),
+      // a new submission starts at a chosen stage; an existing one moves through the stage controls
+      existing ? null : rxField('المرحلة', rxSelect(Object.entries(STAGES).filter(([k]) => k !== 'rejected' && k !== 'published'), s.stage, (v) => { s.stage = v || 'received'; changed(); }, !can, null))),
+    existing ? h('div', { class: 'field full' }, h('label', {}, 'المرحلة'), sbStageControls(row, (fresh) => {
+      if (!fresh) return;
+      row.sub = fresh.sub; row.pub = fresh.pub;
+      st.sub = fresh.sub ? { ...fresh.sub } : null; st.pub = fresh.pub ? { ...fresh.pub } : st.pub;
+      timeline = sbTimeline(fresh.sub.id);
+      drawAll();
+    })) : null,
+    existing && can ? h('div', { class: 'ext-actions start' }, h('button', {
+      type: 'button', class: 'btn sm', title: 'يُحفظ في «2.1 الأبحاث غير المنشورة»؛ الملف بالاسم نفسه يصير نسخة جديدة',
+      onclick: () => sbOfferUpload(S.byId.journals.get(row.sub.journal_id), S.byId.researches.get(row.id) || row),
+    }, icon('upload', 14), 'رفع ملف المقالة')) : null,
+    existing && rejected && row.sub.rejection_reason ? h('p', { class: 'hint' }, `سبب الرفض: ${row.sub.rejection_reason}`) : null,
     row?.sub?.decided_at ? h('small', { class: 'hint' }, `تاريخ القرار: ${rxFmt(row.sub.decided_at)}`) : null,
-    row?.sub ? timeline : null,
-    S.me.role === 'owner' && row?.sub ? h('div', { class: 'ext-actions' }, h('button', { type: 'button', class: 'btn ghost sm', onclick: () => { st.sub = null; changed(); drawAll(); } }, icon('x', 14), 'حذف الاستلام')) : null,
-    !row?.sub && can ? h('div', { class: 'ext-actions' }, h('button', { type: 'button', class: 'btn ghost sm', onclick: () => { st.sub = null; changed(); drawAll(); } }, icon('x', 14), 'إلغاء')) : null);
+    existing ? timeline : null,
+    S.me.role === 'owner' && existing ? h('div', { class: 'ext-actions' }, h('button', { type: 'button', class: 'btn ghost sm', onclick: () => { st.sub = null; changed(); drawAll(); } }, icon('x', 14), 'حذف الاستلام')) : null,
+    !existing && can ? h('div', { class: 'ext-actions' }, h('button', { type: 'button', class: 'btn ghost sm', onclick: () => { st.sub = null; changed(); drawAll(); } }, icon('x', 14), 'إلغاء')) : null);
   }
-  if (row?.sub?.id && subVisible) {
-    timeline.append(h('small', { class: 'muted' }, 'جارٍ تحميل تسلسل المراحل…'));
-    api.select('submission_events', `submission_id=eq.${row.sub.id}&order=happened_at,id`).then((events) => {
-      rxSet(timeline, h('div', { class: 'tl-title' }, 'تسلسل المراحل'),
-        events.length ? h('ol', {}, events.map((e) => h('li', { class: `tl-${e.stage}` },
-          h('b', {}, STAGES[e.stage] ?? e.stage), h('small', { class: 'muted' }, [rxFmt(e.happened_at), e.created_by ? userName(e.created_by) : null].filter(Boolean).join(' · ')),
-          e.note ? h('span', { class: 'tl-note' }, e.note) : null)))
-          : h('small', { class: 'muted' }, 'لا توجد مراحل مسجّلة.'));
-    }).catch((e) => { rxSet(timeline, h('small', { class: 'form-err' }, e.message)); });
-  }
+  let timeline = row?.sub?.id && subVisible ? sbTimeline(row.sub.id) : null;
 
   function drawAll() {
     drawPub();
@@ -187,11 +191,10 @@ export function researchExtSections({ row, isNew, pubDefaults, canEditBase, tran
       // submissions
       if (subVisible && (subEditable() || S.me.role === 'owner')) {
         const s = st.sub;
-        const want = s && s.journal_id ? {
-          journal_id: s.journal_id, received_at: s.received_at || new Date().toISOString().slice(0, 10), stage: s.stage || 'received',
-          rejection_reason: s.stage === 'rejected' ? rxText(s.rejection_reason) : null,
-        } : null;
-        if (want && (!row?.sub || !rxSame(want, row.sub, RX_SUB_COLS))) await api.upsertExtension('submissions', rid, want);
+        const want = s && s.journal_id ? (row?.sub
+          ? { journal_id: s.journal_id, received_at: s.received_at || row.sub.received_at }
+          : { journal_id: s.journal_id, received_at: s.received_at || new Date().toISOString().slice(0, 10), stage: s.stage || 'received' }) : null;
+        if (want && (!row?.sub || !rxSame(want, row.sub, Object.keys(want)))) await api.upsertExtension('submissions', rid, want);
         else if (!want && row?.sub) await api.deleteExtension('submissions', rid);
       }
     },

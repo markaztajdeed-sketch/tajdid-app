@@ -8,8 +8,9 @@ import {
   canInsert, canEditRow, managesJournal, seesSubmissions, FREQUENCIES, PERIODS, periodOfDate, issueWhen,
 } from './schema.js';
 import { filesTab, issueCover, issueFilesCard, issueThumb } from './files.js';
+import { submissionsTab } from './submissions.js';
 
-const TABS = [['overview', 'نظرة عامة', 'chart'], ['issues', 'الأعداد', 'journal'], ['people', 'الأشخاص', 'users'], ['files', 'الملفات', 'folder']];
+const TABS = [['overview', 'نظرة عامة', 'chart'], ['issues', 'الأعداد', 'journal'], ['submissions', 'الاستلام', 'inbox'], ['people', 'الأشخاص', 'users'], ['files', 'الملفات', 'folder']];
 const PEOPLE_LINKS = [
   { key: 'researchers', label: 'باحث', via: 'research_researchers', self: 'research_id', other: 'person_id' },
   { key: 'translators', label: 'مترجم', via: 'research_translators', self: 'research_id', other: 'person_id' },
@@ -62,7 +63,7 @@ function header(j) {
     h('h1', {}, icon('journal', 22), title),
     j.frequency ? h('span', { class: 'chip soft freq' }, `دورية ${FREQUENCIES[j.frequency]}`) : null,
     staff ? h('button', { class: 'btn sm', title: 'اسم المجلة ودوريتها', onclick: () => openRecord('journals', j, 'frequency') }, 'بيانات المجلة') : null,
-    h('nav', { class: 'tabs', role: 'tablist' }, TABS.filter(([k]) => k !== 'files' || managesJournal(S.me.role, j.id)).map(([k, label, ic]) => h('button', {
+    h('nav', { class: 'tabs', role: 'tablist' }, TABS.filter(([k]) => (k !== 'files' || managesJournal(S.me.role, j.id)) && (k !== 'submissions' || (managesJournal(S.me.role, j.id) && seesSubmissions(S.me.role)))).map(([k, label, ic]) => h('button', {
       class: `tab ${(S.journalTab || 'overview') === k && !S.issueId ? 'on' : ''}`, role: 'tab',
       onclick: () => go({ journalTab: k, issueId: null }),
     }, icon(ic, 16), label))));
@@ -207,6 +208,7 @@ export function renderJournal(main) {
   else if (tab === 'issues') body = issuesTab(j);
   else if (tab === 'people') body = peopleTab(j);
   else if (tab === 'files' && managesJournal(S.me.role, j.id)) body = filesTab(j);
+  else if (tab === 'submissions' && managesJournal(S.me.role, j.id) && seesSubmissions(S.me.role)) body = submissionsTab(j);
   else body = overview(j);
   main.replaceChildren(header(j), h('div', { class: 'journal-scroll' }, body));
 }

@@ -802,7 +802,7 @@ function norm(v) {
     .replace(/\s+/g, ' ').trim();
 }
 
-function linkPicker(field, selected, onChange, editable) {
+export function linkPicker(field, selected, onChange, editable) {
   const box = h('div', { class: `link-box ${editable ? 'editable' : ''}` });
   const refT = TABLES[field.ref];
   const canCreate = field.ref !== 'researches' && canInsert(S.me.role, field.ref);
