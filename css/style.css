@@ -431,7 +431,10 @@ td.t-publication .cell { align-items: center; }
 .journal-bar { gap: 10px; }
 .journal-bar h1 { margin-left: 8px; }
 .chip.big { font-size: 15px; padding: 3px 12px; }
-.journal-switch { width: auto; min-width: 140px; padding: 5px 10px; }
+.journal-pills { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.chip.pill { cursor: pointer; border: 1.5px solid transparent; opacity: .6; transition: opacity .15s, border-color .15s; font-family: inherit; }
+.chip.pill:hover { opacity: .9; }
+.chip.pill.on { opacity: 1; border-color: currentColor; }
 .tabs { display: flex; gap: 4px; margin-inline-start: auto; flex-wrap: wrap; }
 .tab { display: inline-flex; align-items: center; gap: 6px; border: 1px solid transparent; background: transparent; padding: 6px 12px; border-radius: 8px; cursor: pointer; color: var(--text-2); }
 .tab:hover { background: var(--surface-2); }

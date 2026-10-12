@@ -33,6 +33,7 @@ function translateError(body, status) {
   if (/rate limit/i.test(msg)) return 'محاولات كثيرة، يرجى الانتظار قليلاً ثم إعادة المحاولة';
   if (code === '42501' || /row-level security/i.test(msg)) return 'ليس لديك صلاحية لتنفيذ هذا الإجراء';
   if (code === '23503') return 'لا يمكن تنفيذ العملية لأن هذا السجل مرتبط بسجلات أخرى';
+  if (code === '23505' && /issues/.test(msg)) return 'هذا العدد موجود مسبقاً في هذه المجلة. تجده في «المجلات والأعداد» بعد اختيار المجلة من الأعلى.';
   if (code === '23505') return 'هذه القيمة موجودة مسبقاً (لا يُسمح بالتكرار)';
   if (code === '23514') return 'قيمة غير صالحة (تحقق من السنة أو عدد الصفحات)';
   if (code === '23502') return 'يوجد حقل إلزامي فارغ';
@@ -1779,15 +1780,16 @@ function go(state) { Object.assign(S, state); renderShell(); }
 // ---------- header ----------
 function header(j) {
   const list = myJournals();
-  const switcher = list.length > 1
-    ? h('select', {
-      class: 'journal-switch', 'aria-label': 'اختيار المجلة',
-      onchange: (e) => { lsSet('tajdid_journal', Number(e.target.value)); go({ issueId: null }); },
-    }, list.map((x) => h('option', { value: x.id, selected: x.id === j.id }, x.name)))
-    : null;
+  // more than one journal → a row of colored journal buttons with their issue counts
+  const title = list.length > 1
+    ? h('div', { class: 'journal-pills', role: 'tablist', 'aria-label': 'اختيار المجلة' }, list.map((x) => h('button', {
+      class: `${chipClass('journals', x.id)} big pill ${x.id === j.id ? 'on' : ''}`, role: 'tab', 'aria-selected': String(x.id === j.id),
+      title: `${x.name}: ${issuesOf(x.id).length} عدد`,
+      onclick: () => { lsSet('tajdid_journal', x.id); go({ issueId: null }); },
+    }, x.name, h('small', { class: 'chip-count' }, issuesOf(x.id).length))))
+    : h('span', { class: `${chipClass('journals', j.id)} big` }, j.name);
   return h('div', { class: 'toolbar journal-bar' },
-    h('h1', {}, icon('journal', 22), h('span', { class: `${chipClass('journals', j.id)} big` }, j.name)),
-    switcher,
+    h('h1', {}, icon('journal', 22), title),
     h('nav', { class: 'tabs', role: 'tablist' }, TABS.map(([k, label, ic]) => h('button', {
       class: `tab ${(S.journalTab || 'overview') === k && !S.issueId ? 'on' : ''}`, role: 'tab',
       onclick: () => go({ journalTab: k, issueId: null }),
