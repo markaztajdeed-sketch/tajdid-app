@@ -3117,6 +3117,14 @@ function sbNewSubmission(j, done) {
     onclick: async () => {
       err.textContent = '';
       if (!title.value.trim()) { err.textContent = 'عنوان البحث إلزامي'; title.focus(); return; }
+      // same title already in the database → warn once; a second click registers it anyway
+      const norm = (t) => String(t || '').replace(/[\u064B-\u0652\u0640]/g, '').replace(/[أإآ]/g, 'ا').replace(/\s+/g, ' ').trim().toLowerCase();
+      const dup = (S.data.researches || []).find((x) => norm(x.title) === norm(title.value));
+      if (dup && ok.dataset.dupOk !== norm(title.value)) {
+        ok.dataset.dupOk = norm(title.value);
+        err.replaceChildren(`يوجد بحث بالعنوان نفسه «${dup.title}»${dup.sub ? ` (استلام: ${STAGES[dup.sub.stage]})` : ''}. إن كان هو نفسه فافتحه بدل تسجيل استلام جديد. وإن كان بحثاً آخر فاضغط «تسجيل الاستلام» مرة ثانية.`);
+        return;
+      }
       ok.disabled = true;
       try {
         const r = await api.insertRow('researches', { title: title.value.trim(), language_id: lang.value ? Number(lang.value) : null });
