@@ -2682,6 +2682,7 @@ function linkedFilesSection(table, row) {
           h('td', { class: 'muted' }, flSize(f.size)),
           h('td', { class: 'f-act' },
             book && target && isImg(f) && !f.is_issue_cover ? act('camera', 'تعيين غلافاً للكتاب', async () => { try { await setCover(f); toast('تم تعيين الغلاف'); flReset(); draw(); } catch (e) { toast(e.message, 'err'); } }) : null,
+            act('layers', 'النسخ والتفاصيل', () => flDetails({ id: f.journal_id ?? null }, f, () => { flReset(); draw(); })),
             act('eye', 'فتح', () => flOpen(f)), act('download', 'تنزيل', () => flOpen(f, true))))))))
         : h('p', { class: 'muted' }, target ? target.empty : 'لا توجد ملفات مرتبطة. يمكن ربط أي ملف من نافذة «النسخ والتفاصيل» في تبويب الملفات.'),
       target ? h('div', { class: 'files-tools' },
