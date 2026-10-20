@@ -223,7 +223,7 @@ function flDetails(j, file, redraw) {
     if (!f) return;
     try {
       status.textContent = 'جارٍ الرفع…';
-      await flAddVersion(file, f, null, { onProgress: (p) => { status.textContent = `جارٍ الرفع… ${Math.round(p * 100)}%`; }, note: f.name !== file.name ? `من ملف «${f.name}»` : null });
+      await flAddVersion(file, f, null, { onProgress: (p) => { status.textContent = `جارٍ الرفع… ${Math.round(p * 100)}%`; }, note: [flStageNote(file.research_id), f.name !== file.name ? `من ملف «${f.name}»` : null].filter(Boolean).join(' · ') || null });
       await flRefreshFile(file); drawVersions(); redraw(); status.textContent = 'رُفعت نسخة جديدة';
     } catch (e) { status.textContent = ''; toast(e.message, 'err'); }
   });
