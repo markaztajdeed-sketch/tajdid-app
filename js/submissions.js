@@ -7,7 +7,7 @@ import {
   S, h, toast, openModal, displayOf, linkedIds, openRecord, renderShell, reloadResearch, linkPicker, userName, lsGet, lsSet,
 } from './app.js';
 import { TABLES, STAGES, managesJournal, issueWhen } from './schema.js';
-import { flUploadToCode, flFilesForResearches, flOpenFile } from './files.js';
+import { flUploadStageVersion, flFilesForResearches, flOpenFile } from './files.js';
 
 // Board columns, in workflow order (published & rejected are end states)
 export const SB_FLOW = ['received', 'initial_review', 'under_review', 'revisions', 'accepted', 'proofreading', 'proofread', 'final'];
@@ -83,6 +83,7 @@ export function sbMoveDialog(r, target, done) {
     order.value = issueSel.value ? n + 1 : '';
   });
   if (r.pub?.kind === 'article') { issueSel.value = r.pub.issue_id; start.value = r.pub.start_page ?? ''; end.value = r.pub.end_page ?? ''; order.value = r.pub.issue_order ?? ''; }
+  const stageFile = h('input', { type: 'file' });
   const err = h('div', { class: 'form-err' });
   const field = (label, el) => h('label', { class: 'f' }, h('span', {}, label), el);
   const body = h('div', { class: 'sb-move' },
@@ -90,6 +91,7 @@ export function sbMoveDialog(r, target, done) {
     target === 'rejected' ? field('سبب الرفض *', reason) : null,
     target === 'published' ? h('div', { class: 'form-rows two' }, field('العدد *', issueSel), field('ترتيبها في العدد', order), field('من صفحة', start), field('إلى صفحة', end)) : null,
     target !== 'rejected' ? field('ملاحظة', note) : null,
+    target !== 'rejected' ? field(`ملف هذه المرحلة (اختياري): يُحفظ نسخةً جديدة من ملف المقالة باسم «${STAGES[target]}»`, stageFile) : null,
     err);
   const ok = h('button', {
     class: `btn ${target === 'rejected' ? 'danger' : 'primary'}`,
@@ -109,10 +111,15 @@ export function sbMoveDialog(r, target, done) {
           p_end_page: target === 'published' && end.value ? Number(end.value) : null,
           p_issue_order: target === 'published' && order.value ? Number(order.value) : null,
         });
+        let upErr = null;
+        if (target !== 'rejected' && stageFile.files[0]) {
+          try { await flUploadStageVersion(sub.journal_id, r, stageFile.files[0], STAGES[target], (p) => { ok.textContent = `رفع الملف… ${Math.round(p * 100)}%`; }); } catch (e) { upErr = e; }
+        }
         const fresh = await reloadResearch(r.id);
         sbInvalidate();
         close(true);
-        toast(target === 'rejected' ? 'سُجّل الرفض' : `نُقل إلى «${STAGES[target]}»`);
+        if (upErr) toast(`نُقل إلى «${STAGES[target]}»، لكن لم يُرفع الملف: ${upErr.message}`, 'err');
+        else toast(target === 'rejected' ? 'سُجّل الرفض' : `نُقل إلى «${STAGES[target]}»${stageFile.files[0] ? ' ورُفع ملفه' : ''}`);
         done?.(fresh);
       } catch (e) { err.textContent = e.message; ok.disabled = false; }
     },
@@ -187,7 +194,7 @@ export function sbNewSubmission(j, done) {
 
 // After a new submission: offer to upload the article file into «2.1 الأبحاث غير المنشورة»
 export function sbOfferUpload(j, r) {
-  const input = h('input', { type: 'file', multiple: true });
+  const input = h('input', { type: 'file' });
   const status = h('small', { class: 'muted' });
   const ok = h('button', {
     class: 'btn primary',
@@ -195,14 +202,14 @@ export function sbOfferUpload(j, r) {
       if (!input.files.length) { status.textContent = 'اختر ملفاً أولاً'; return; }
       ok.disabled = true;
       try {
-        const res = await flUploadToCode(j.id, '2.1', r, input.files, (f, p) => { status.textContent = `${f.name}: ${Math.round(p * 100)}%`; });
-        toast(res.length === 1 ? 'رُفع ملف المقالة' : `رُفع ${res.length} ملفات`);
+        const v = await flUploadStageVersion(j.id, r, input.files[0], STAGES[r.sub?.stage] || null, (p) => { status.textContent = `${input.files[0].name}: ${Math.round(p * 100)}%`; });
+        toast(v.version > 1 ? `رُفعت نسخة ${v.version} من ملف المقالة` : 'رُفع ملف المقالة');
         close(true);
       } catch (e) { status.textContent = e.message; ok.disabled = false; }
     },
   }, icon('upload', 15), 'رفع');
   const close = openModal('رفع ملف المقالة', h('div', { class: 'sb-upload' },
-    h('p', {}, `يُحفظ في «2.1 الأبحاث غير المنشورة» لمجلة ${j.name} مرتبطاً بالبحث «${r.title}». النسخة اللاحقة بالاسم نفسه (بعد التدقيق مثلاً) تُحفظ نسخة جديدة.`),
+    h('p', {}, `يُحفظ في «2.1 الأبحاث غير المنشورة» لمجلة ${j.name} مرتبطاً بالبحث «${r.title}». وكل ملف يُرفع بعده (بعد التدقيق مثلاً) يُحفظ نسخةً جديدة منه باسم مرحلته، أياً كان اسمه.`),
     input, status), [ok, h('button', { class: 'btn ghost', onclick: () => close(true) }, 'لاحقاً')]);
   document.querySelector('.modal-wrap:last-child .modal')?.classList.add('small');
 }

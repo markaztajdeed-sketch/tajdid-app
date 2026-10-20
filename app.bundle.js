@@ -1882,7 +1882,7 @@ function researchExtSections({ row, isNew, pubDefaults, canEditBase, translators
       drawAll();
     })) : null,
     existing && can ? h('div', { class: 'ext-actions start' }, h('button', {
-      type: 'button', class: 'btn sm', title: 'يُحفظ في «2.1 الأبحاث غير المنشورة»؛ الملف بالاسم نفسه يصير نسخة جديدة',
+      type: 'button', class: 'btn sm', title: 'يُحفظ في «2.1 الأبحاث غير المنشورة»؛ كل رفع بعد الأول يصير نسخة جديدة باسم المرحلة الحالية',
       onclick: () => sbOfferUpload(S.byId.journals.get(row.sub.journal_id), S.byId.researches.get(row.id) || row),
     }, icon('upload', 14), 'رفع ملف المقالة')) : null,
     existing && rejected && row.sub.rejection_reason ? h('p', { class: 'hint' }, `سبب الرفض: ${row.sub.rejection_reason}`) : null,
@@ -2753,6 +2753,25 @@ async function flUploadToCode(jid, code, research, fileList, onProgress) {
   flReset();
   return out;
 }
+// One file per article in «2.1»: each upload becomes a new version of it (whatever its name), labelled with the stage.
+// The first upload creates the file.
+async function flUploadStageVersion(jid, research, blob, note, onProgress) {
+  if (blob.size > api.MAX_FILE_MB * 1024 * 1024) throw new api.ApiError(`«${blob.name}» أكبر من ${api.MAX_FILE_MB} ميغابايت`);
+  const [folder] = await api.select('folders', `journal_id=eq.${jid}&code=eq.2.1&kind=eq.fixed&deleted_at=is.null`);
+  if (!folder) throw new api.ApiError('لم يُعثر على مجلد «2.1 الأبحاث غير المنشورة» في هذه المجلة');
+  const [existing] = await api.select('files', `folder_id=eq.${folder.id}&research_id=eq.${research.id}&deleted_at=is.null&order=id.desc&limit=1`);
+  let v;
+  if (existing) {
+    v = await flAddVersion(existing, blob, null, { onProgress, note: [note, blob.name !== existing.name ? `من ملف «${blob.name}»` : null].filter(Boolean).join(' · ') || null });
+  } else {
+    const path = flObjectPath(jid, blob.name);
+    await api.uploadPrivate(FL_BUCKET, path, blob, onProgress);
+    const f = await api.insertRow('files', { folder_id: folder.id, journal_id: jid, name: blob.name, research_id: research.id });
+    v = await api.insertRow('file_versions', { file_id: f.id, path, size: blob.size, mime: blob.type || null, note: note || null });
+  }
+  flReset();
+  return v;
+}
 // Files linked to several researches (for the rejected archive)
 async function flFilesForResearches(ids) {
   if (!ids.length) return [];
@@ -3010,6 +3029,7 @@ function sbMoveDialog(r, target, done) {
     order.value = issueSel.value ? n + 1 : '';
   });
   if (r.pub?.kind === 'article') { issueSel.value = r.pub.issue_id; start.value = r.pub.start_page ?? ''; end.value = r.pub.end_page ?? ''; order.value = r.pub.issue_order ?? ''; }
+  const stageFile = h('input', { type: 'file' });
   const err = h('div', { class: 'form-err' });
   const field = (label, el) => h('label', { class: 'f' }, h('span', {}, label), el);
   const body = h('div', { class: 'sb-move' },
@@ -3017,6 +3037,7 @@ function sbMoveDialog(r, target, done) {
     target === 'rejected' ? field('سبب الرفض *', reason) : null,
     target === 'published' ? h('div', { class: 'form-rows two' }, field('العدد *', issueSel), field('ترتيبها في العدد', order), field('من صفحة', start), field('إلى صفحة', end)) : null,
     target !== 'rejected' ? field('ملاحظة', note) : null,
+    target !== 'rejected' ? field(`ملف هذه المرحلة (اختياري): يُحفظ نسخةً جديدة من ملف المقالة باسم «${STAGES[target]}»`, stageFile) : null,
     err);
   const ok = h('button', {
     class: `btn ${target === 'rejected' ? 'danger' : 'primary'}`,
@@ -3036,10 +3057,15 @@ function sbMoveDialog(r, target, done) {
           p_end_page: target === 'published' && end.value ? Number(end.value) : null,
           p_issue_order: target === 'published' && order.value ? Number(order.value) : null,
         });
+        let upErr = null;
+        if (target !== 'rejected' && stageFile.files[0]) {
+          try { await flUploadStageVersion(sub.journal_id, r, stageFile.files[0], STAGES[target], (p) => { ok.textContent = `رفع الملف… ${Math.round(p * 100)}%`; }); } catch (e) { upErr = e; }
+        }
         const fresh = await reloadResearch(r.id);
         sbInvalidate();
         close(true);
-        toast(target === 'rejected' ? 'سُجّل الرفض' : `نُقل إلى «${STAGES[target]}»`);
+        if (upErr) toast(`نُقل إلى «${STAGES[target]}»، لكن لم يُرفع الملف: ${upErr.message}`, 'err');
+        else toast(target === 'rejected' ? 'سُجّل الرفض' : `نُقل إلى «${STAGES[target]}»${stageFile.files[0] ? ' ورُفع ملفه' : ''}`);
         done?.(fresh);
       } catch (e) { err.textContent = e.message; ok.disabled = false; }
     },
@@ -3114,7 +3140,7 @@ function sbNewSubmission(j, done) {
 
 // After a new submission: offer to upload the article file into «2.1 الأبحاث غير المنشورة»
 function sbOfferUpload(j, r) {
-  const input = h('input', { type: 'file', multiple: true });
+  const input = h('input', { type: 'file' });
   const status = h('small', { class: 'muted' });
   const ok = h('button', {
     class: 'btn primary',
@@ -3122,14 +3148,14 @@ function sbOfferUpload(j, r) {
       if (!input.files.length) { status.textContent = 'اختر ملفاً أولاً'; return; }
       ok.disabled = true;
       try {
-        const res = await flUploadToCode(j.id, '2.1', r, input.files, (f, p) => { status.textContent = `${f.name}: ${Math.round(p * 100)}%`; });
-        toast(res.length === 1 ? 'رُفع ملف المقالة' : `رُفع ${res.length} ملفات`);
+        const v = await flUploadStageVersion(j.id, r, input.files[0], STAGES[r.sub?.stage] || null, (p) => { status.textContent = `${input.files[0].name}: ${Math.round(p * 100)}%`; });
+        toast(v.version > 1 ? `رُفعت نسخة ${v.version} من ملف المقالة` : 'رُفع ملف المقالة');
         close(true);
       } catch (e) { status.textContent = e.message; ok.disabled = false; }
     },
   }, icon('upload', 15), 'رفع');
   const close = openModal('رفع ملف المقالة', h('div', { class: 'sb-upload' },
-    h('p', {}, `يُحفظ في «2.1 الأبحاث غير المنشورة» لمجلة ${j.name} مرتبطاً بالبحث «${r.title}». النسخة اللاحقة بالاسم نفسه (بعد التدقيق مثلاً) تُحفظ نسخة جديدة.`),
+    h('p', {}, `يُحفظ في «2.1 الأبحاث غير المنشورة» لمجلة ${j.name} مرتبطاً بالبحث «${r.title}». وكل ملف يُرفع بعده (بعد التدقيق مثلاً) يُحفظ نسخةً جديدة منه باسم مرحلته، أياً كان اسمه.`),
     input, status), [ok, h('button', { class: 'btn ghost', onclick: () => close(true) }, 'لاحقاً')]);
   document.querySelector('.modal-wrap:last-child .modal')?.classList.add('small');
 }

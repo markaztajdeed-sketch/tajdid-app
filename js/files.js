@@ -489,6 +489,25 @@ export async function flUploadToCode(jid, code, research, fileList, onProgress) 
   flReset();
   return out;
 }
+// One file per article in «2.1»: each upload becomes a new version of it (whatever its name), labelled with the stage.
+// The first upload creates the file.
+export async function flUploadStageVersion(jid, research, blob, note, onProgress) {
+  if (blob.size > api.MAX_FILE_MB * 1024 * 1024) throw new api.ApiError(`«${blob.name}» أكبر من ${api.MAX_FILE_MB} ميغابايت`);
+  const [folder] = await api.select('folders', `journal_id=eq.${jid}&code=eq.2.1&kind=eq.fixed&deleted_at=is.null`);
+  if (!folder) throw new api.ApiError('لم يُعثر على مجلد «2.1 الأبحاث غير المنشورة» في هذه المجلة');
+  const [existing] = await api.select('files', `folder_id=eq.${folder.id}&research_id=eq.${research.id}&deleted_at=is.null&order=id.desc&limit=1`);
+  let v;
+  if (existing) {
+    v = await flAddVersion(existing, blob, null, { onProgress, note: [note, blob.name !== existing.name ? `من ملف «${blob.name}»` : null].filter(Boolean).join(' · ') || null });
+  } else {
+    const path = flObjectPath(jid, blob.name);
+    await api.uploadPrivate(FL_BUCKET, path, blob, onProgress);
+    const f = await api.insertRow('files', { folder_id: folder.id, journal_id: jid, name: blob.name, research_id: research.id });
+    v = await api.insertRow('file_versions', { file_id: f.id, path, size: blob.size, mime: blob.type || null, note: note || null });
+  }
+  flReset();
+  return v;
+}
 // Files linked to several researches (for the rejected archive)
 export async function flFilesForResearches(ids) {
   if (!ids.length) return [];

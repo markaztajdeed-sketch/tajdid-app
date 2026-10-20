@@ -140,7 +140,7 @@ export function researchExtSections({ row, isNew, pubDefaults, canEditBase, tran
       drawAll();
     })) : null,
     existing && can ? h('div', { class: 'ext-actions start' }, h('button', {
-      type: 'button', class: 'btn sm', title: 'يُحفظ في «2.1 الأبحاث غير المنشورة»؛ الملف بالاسم نفسه يصير نسخة جديدة',
+      type: 'button', class: 'btn sm', title: 'يُحفظ في «2.1 الأبحاث غير المنشورة»؛ كل رفع بعد الأول يصير نسخة جديدة باسم المرحلة الحالية',
       onclick: () => sbOfferUpload(S.byId.journals.get(row.sub.journal_id), S.byId.researches.get(row.id) || row),
     }, icon('upload', 14), 'رفع ملف المقالة')) : null,
     existing && rejected && row.sub.rejection_reason ? h('p', { class: 'hint' }, `سبب الرفض: ${row.sub.rejection_reason}`) : null,
